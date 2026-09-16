@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "paths": {
+      "@deepseek-ai/dsh-site": ["../site/src/index.ts"],
+      "@deepseek-ai/dsh-shopify": ["../../shopify/shopify/src/index.ts"],
+      "@deepseek-ai/dsh-brand": ["../../util/brand/src/index.ts"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "../../util/brand" }, { "path": "../site" }, { "path": "../../shopify/shopify" }, { "path": "../../../vendor/cordis" }]
+}

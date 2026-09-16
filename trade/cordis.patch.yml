@@ -1,0 +1,15 @@
+# Deployment-owned extension layer over the upstream Web profile.
+# Keep the standard preset until the trade preset has recorded-session coverage.
+- insert:
+    - id: trade-enterprise
+      name: './enterprise/lib/index.js'
+      config:
+        directory: !!js "process.env.DSH_HOME + '/enterprise'"
+        maxFileBytes: 268435456
+        maxTotalBytes: 2147483648
+        maxExtractedCharacters: 1000000
+        knowledgeChunkCharacters: 1200
+        maxKnowledgeResults: 8
+        maxDecompressedBytes: 134217728
+        maxArchiveEntries: 5000
+        maxTableCells: 250000

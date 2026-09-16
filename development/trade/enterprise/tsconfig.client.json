@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.client.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "declaration": false, "declarationMap": false, "jsx": "react-jsx" },
+  "include": ["src/client.tsx", "src/locales.ts", "src/schema.ts"],
+  "references": [
+    { "path": "../../vendor/cordis" },
+    { "path": "../../packages/api/session-controller/tsconfig.client.json" },
+    { "path": "../../packages/client/locale" },
+    { "path": "../../packages/client/ui-conversation" },
+    { "path": "../../packages/client/ui-layout" },
+    { "path": "../../packages/client/ui-sidebar" },
+    { "path": "../../packages/client/ui-renderer" },
+    { "path": "../../packages/client/ui-slots" },
+    { "path": "../../packages/client/ui-primitives" }
+  ]
+}

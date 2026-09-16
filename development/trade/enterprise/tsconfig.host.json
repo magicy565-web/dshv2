@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "declaration": false, "declarationMap": false },
+  "include": ["src/host.ts", "src/knowledge.ts", "src/schema.ts"],
+  "references": [
+    { "path": "../../vendor/cordis" },
+    { "path": "../../packages/client/connection/tsconfig.host.json" },
+    { "path": "../../packages/core/system-prompt" },
+    { "path": "../../packages/core/tools" }
+  ]
+}

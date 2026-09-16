@@ -1,0 +1,21 @@
+# Grokbot cloud-computer task bridge over the shipped Web composition.
+- insert:
+    - id: grokbot-task-bridge
+      name: cordis:group
+      group: true
+      isolate:
+        webServer: true
+      config:
+        - id: grokbot-task-server
+          name: '@deepseek-ai/dsh-host-webserver'
+          config:
+            host: '127.0.0.1'
+            port: !!js Number(process.env.DSH_GROKBOT_PORT ?? 3082)
+
+        - id: grokbot-task-service
+          name: '@deepseek-ai/dsh-webhook-grokbot'
+          config:
+            path: /grokbot
+            authEnv: GROKBOT_SHARED_SECRET
+            maxBodyBytes: 1048576
+            leaseSeconds: 120

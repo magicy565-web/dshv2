@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n/README.md).
+# Re-record after editing either document with:
+# pnpm run verify-translation-pairing --write docs/cookbook/shopify-geo-development-plan.md
+shopify-geo-development-plan.md: d03ba3f3d07137e075e9b164b26271b4afaf4915
+shopify-geo-development-plan.zh.md: f7f059f0824b629a22772ff8f5785c39196f801a

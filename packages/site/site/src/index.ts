@@ -1,0 +1,141 @@
+/** Service Definition for structured AI site editing and publishing. */
+import { Context, Service } from '@deepseek-ai/cordis'
+import type {
+  PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteContent, SiteRevisionDiff,
+} from './types.ts'
+import { compareSiteContent } from './revisions.ts'
+import { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
+import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
+
+export * from './types.ts'
+export { assertValidSiteChangeSet, validateSiteChangeSet } from './validation.ts'
+export { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
+export { createShopifySitePublisher, renderShopifyThemeFiles } from './shopify-publisher.ts'
+export type { SiteThemeRenderer } from './shopify-publisher.ts'
+
+export interface SiteResolveRequest { readonly tenantId: TenantId; readonly siteId: SiteId }
+export interface SiteSpec { readonly tenantId: TenantId; readonly siteId: SiteId }
+
+/** Public files generated from the last successfully published revision. */
+export type PublicSiteFiles = Readonly<Record<string, string>>
+
+/** Execute the external publication side effect for one detached site revision. */
+export type SitePublisher = (site: Site, revision: SiteRevision) => Promise<void>
+
+declare module '@deepseek-ai/cordis' {
+  interface Context { site: SiteService }
+}
+
+/** Site editing service. It accepts typed change sets and never accepts raw Shopify API requests. */
+export abstract class SiteService extends Service {
+  constructor(ctx: Context) { super(ctx, 'site') }
+  /** Create a site for an authorized tenant and store connection. */
+  abstract createSite(tenantId: TenantId, name: string, connectionId: StoreConnectionId): Site
+  /** List sites owned by the authorized tenant. */
+  abstract list(tenantId: TenantId): readonly Site[]
+  /** Resolve tenant and site identity into an explicit operation spec. */
+  abstract resolve(request: SiteResolveRequest): SiteSpec
+  /** Read a tenant-owned site. */
+  abstract get(spec: SiteSpec): Site | undefined
+  /** Read the current or requested revision. */
+  abstract getRevision(spec: SiteSpec, revisionId?: SiteRevisionId): SiteRevision | undefined
+  /** List revisions newest first for the tenant-owned site. */
+  abstract listRevisions(spec: SiteSpec): readonly SiteRevision[]
+  /** Persist a validated structured change set as a new revision. */
+  abstract createRevision(spec: SiteSpec, changeSet: SiteChangeSet, source: SiteRevision['source']): Promise<SiteRevision>
+  /** Resolve partial edits through their recorded bases within one tenant-owned site.
+   * @param spec - Resolved tenant and site.
+   * @param revisionId - Revision whose complete content is required.
+   * @returns Detached pages, theme and product order.
+   */
+  content(spec: SiteSpec, revisionId: SiteRevisionId): SiteContent {
+    const chain: SiteRevision[] = []
+    const visited = new Set<SiteRevisionId>()
+    let next: SiteRevisionId | undefined = revisionId
+    while (next !== undefined) {
+      if (visited.has(next)) throw new Error('site revision ancestry contains a cycle')
+      visited.add(next)
+      const revision: SiteRevision | undefined = this.getRevision(spec, next)
+      if (!revision) throw new Error('site revision is not available for this tenant')
+      chain.push(revision)
+      if (revision.source === 'rollback') break
+      next = revision.changeSet.baseRevisionId
+    }
+    let content: SiteContent = { pages: [], productOrder: [] }
+    for (const revision of chain.reverse()) {
+      const { baseRevisionId: _base, ...changes } = revision.changeSet
+      content = { ...content, ...changes }
+    }
+    return structuredClone(content)
+  }
+  /** Compare two stored revisions without crossing tenant or site ownership.
+   * @param spec - Resolved tenant and site.
+   * @param revisionId - Revision proposed for publication.
+   * @param baseRevisionId - Earlier revision, or undefined for empty content.
+   * @returns Page, theme and ordering differences for review.
+   */
+  diff(spec: SiteSpec, revisionId: SiteRevisionId, baseRevisionId?: SiteRevisionId): SiteRevisionDiff {
+    return compareSiteContent(baseRevisionId === undefined ? undefined : this.content(spec, baseRevisionId), this.content(spec, revisionId))
+  }
+  /** Render a page from resolved draft content; this does not publish it.
+   * @param spec - Resolved tenant and site.
+   * @param revisionId - Stored revision to preview.
+   * @param pageId - Page identifier in the complete revision.
+   * @param origin - Public origin for canonical links.
+   * @returns Standalone HTML, which consumers must serve as a private preview.
+   */
+  preview(spec: SiteSpec, revisionId: SiteRevisionId, pageId: string, origin: string): string {
+    const revision = this.getRevision(spec, revisionId)
+    if (!revision) throw new Error('site revision is not available for this tenant')
+    const content = this.content(spec, revisionId)
+    const page = content.pages.find(item => item.id === pageId)
+    if (!page) throw new Error('page is not available in this revision')
+    return renderSitePage({ ...revision, changeSet: content }, page, origin)
+  }
+  /** Render only the committed public revision; drafts never enter this result.
+   * @param spec - Resolved tenant and site.
+   * @param origin - Public HTTP(S) origin used for canonical URLs.
+   * @returns Static files suitable for a read-only public adapter.
+   */
+  publicFiles(spec: SiteSpec, origin: string): PublicSiteFiles {
+    const site = this.get(spec)
+    if (!site?.publishedRevisionId) return {}
+    const revision = this.getRevision(spec, site.publishedRevisionId)
+    if (!revision) throw new Error('published site revision is missing')
+    const content = this.content(spec, revision.id)
+    const files: Record<string, string> = { 'sitemap.xml': renderSitemap({ ...revision, changeSet: content }, origin), 'robots.txt': renderRobots(origin) }
+    for (const page of content.pages) {
+      const filename = page.path === '/' ? 'index.html' : `${page.path.slice(1).replace(/\/$/, '')}/index.html`
+      files[filename] = renderSitePage({ ...revision, changeSet: content }, page, origin)
+      files[filename.replace(/\.html$/, '.jsonld')] = renderPageJsonLd(page, origin)
+    }
+    return structuredClone(files)
+  }
+  /** Create a rollback revision from an existing revision. */
+  async rollback(spec: SiteSpec, revisionId: SiteRevisionId): Promise<SiteRevision> {
+    const revision = this.getRevision(spec, revisionId)
+    if (!revision) throw new Error('site revision is not available for this tenant')
+    const baseRevisionId = this.get(spec)?.currentRevisionId
+    const content = this.content(spec, revision.id)
+    return this.createRevision(spec, { ...content, ...(baseRevisionId === undefined ? {} : { baseRevisionId }) }, 'rollback')
+  }
+  /** Queue and execute publication; reject when no publisher is configured. */
+  abstract publish(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob>
+  /** Queue one immutable revision; coalesce a duplicate queued or running request. */
+  abstract queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob>
+  /** Execute a queued job, retaining the prior publication on failure.
+   * @param spec - Resolved tenant and site.
+   * @param jobId - Queued publication job.
+   * @param publisher - Optional external side effect; the configured provider is used when omitted.
+   * @returns The committed job status after the side effect settles.
+   */
+  abstract runPublishJob(spec: SiteSpec, jobId: PublishJobId, publisher?: SitePublisher): Promise<PublishJob>
+  /** Read one publication job by opaque id. */
+  abstract getPublishJob(spec: SiteSpec, jobId: PublishJobId): PublishJob | undefined
+  /** List publication jobs newest first for the tenant-owned site. */
+  abstract listPublishJobs(spec: SiteSpec): readonly PublishJob[]
+  /** Cancel a queued publication without deleting its history. */
+  abstract cancelPublishJob(spec: SiteSpec, jobId: PublishJobId): Promise<PublishJob>
+}
+
+export default SiteService

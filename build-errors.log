@@ -1,0 +1,126 @@
+packages/routine/routine-local/tests/schedule.spec.ts(2,59): error TS6307: File 'E:/dshv2-main/packages/routine/routine-local/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+packages/routine/tool-routine/src/index.ts(4,27): error TS6307: File 'E:/dshv2-main/packages/routine/routine/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via '@deepseek-ai/dsh-routine' from file 'E:/dshv2-main/packages/routine/tool-routine/src/index.ts'
+    Imported via '@deepseek-ai/dsh-routine' from file 'E:/dshv2-main/packages/routine/tool-routine/src/index.ts'
+    Imported via '@deepseek-ai/dsh-routine' from file 'E:/dshv2-main/packages/routine/tool-routine/src/index.ts'
+    Imported via '@deepseek-ai/dsh-routine' from file 'E:/dshv2-main/packages/routine/routine-local/src/index.ts'
+    Imported via '@deepseek-ai/dsh-routine' from file 'E:/dshv2-main/packages/routine/routine-local/src/index.ts'
+packages/shopify/shopify/src/cart.ts(1,43): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/client.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './client.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/cart.ts'
+    Imported via './client.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via './client.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/oauth.ts'
+    Imported via './client.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/graphql-provider.ts'
+    Imported via './client.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/http.ts'
+packages/shopify/shopify/src/graphql-provider.ts(3,43): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/service.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './service.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/graphql-provider.ts'
+    Imported via './service.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/providers.ts'
+    Imported via './service.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via './service.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via './service.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+packages/shopify/shopify/src/index.ts(2,15): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/types.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/graphql-provider.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/service.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/graphql-provider.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/providers.ts'
+    Imported via '../../../shopify/shopify/src/types.ts' from file 'E:/dshv2-main/packages/site/site/tests/memory.spec.ts'
+packages/shopify/shopify/src/index.ts(4,111): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/oauth.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+packages/shopify/shopify/src/index.ts(7,38): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/graphql-provider.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './graphql-provider.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via '../src/graphql-provider.ts' from file 'E:/dshv2-main/packages/shopify/shopify/tests/graphql-provider.spec.ts'
+packages/shopify/shopify/src/index.ts(8,79): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/http.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+packages/shopify/shopify/src/index.ts(9,121): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/providers.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './providers.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via '../src/providers.ts' from file 'E:/dshv2-main/packages/shopify/shopify/tests/providers.spec.ts'
+packages/shopify/shopify/tests/cart.spec.ts(2,38): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/cart.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via '../src/cart.ts' from file 'E:/dshv2-main/packages/shopify/shopify/tests/cart.spec.ts'
+    Imported via './cart.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+    Imported via './cart.ts' from file 'E:/dshv2-main/packages/shopify/shopify/src/index.ts'
+packages/shopify/shopify/tests/client.spec.ts(2,74): error TS6307: File 'E:/dshv2-main/packages/shopify/shopify/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via '../src/index.ts' from file 'E:/dshv2-main/packages/shopify/shopify/tests/client.spec.ts'
+    Imported via '../src/index.ts' from file 'E:/dshv2-main/packages/shopify/shopify/tests/oauth.spec.ts'
+packages/shopify/shopify/tests/client.spec.ts(7,34): error TS6133: 'url' is declared but its value is never read.
+packages/shopify/shopify/tests/client.spec.ts(8,141): error TS2322: Type 'Mock<(url: string) => Promise<Response>>' is not assignable to type '{ (input: URL | RequestInfo, init?: RequestInit | undefined): Promise<Response>; (input: string | URL | Request, init?: RequestInit | undefined): Promise<...>; }'.
+  Types of parameters 'url' and 'input' are incompatible.
+    Type 'URL | RequestInfo' is not assignable to type 'string'.
+      Type 'URL' is not assignable to type 'string'.
+packages/shopify/shopify/tests/client.spec.ts(23,83): error TS2558: Expected 0 type arguments, but got 1.
+packages/site/site/src/index.ts(6,31): error TS2307: Cannot find module '@deepseek-ai/dsh-shopify' or its corresponding type declarations.
+packages/site/site/src/memory.ts(4,50): error TS2307: Cannot find module '@deepseek-ai/dsh-shopify' or its corresponding type declarations.
+packages/site/site/src/memory.ts(5,42): error TS6307: File 'E:/dshv2-main/packages/site/site/src/validation.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './validation.ts' from file 'E:/dshv2-main/packages/site/site/src/memory.ts'
+    Imported via './validation.ts' from file 'E:/dshv2-main/packages/site/site/src/index.ts'
+packages/site/site/src/memory.ts(6,44): error TS6307: File 'E:/dshv2-main/packages/site/site/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './index.ts' from file 'E:/dshv2-main/packages/site/site/src/memory.ts'
+    Imported via '../src/index.ts' from file 'E:/dshv2-main/packages/site/site/tests/validation.spec.ts'
+packages/site/site/src/types.ts(3,68): error TS2307: Cannot find module '@deepseek-ai/dsh-shopify' or its corresponding type declarations.
+packages/site/site/src/validation.ts(1,36): error TS6307: File 'E:/dshv2-main/packages/site/site/src/types.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+  The file is in the program because:
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/site/site/src/validation.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/site/site/src/index.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/site/site/src/index.ts'
+    Imported via './types.ts' from file 'E:/dshv2-main/packages/site/site/src/memory.ts'
+    Imported via '../src/types.ts' from file 'E:/dshv2-main/packages/site/site/tests/memory.spec.ts'
+packages/site/site/tests/memory.spec.ts(4,37): error TS6307: File 'E:/dshv2-main/packages/site/site/src/memory.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+packages/webhook/webhook-grokbot/src/index.ts(48,33): error TS2375: Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+    Types of property 'leaseExpiresAt' are incompatible.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(50,31): error TS2322: Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[] | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }[]'.
+  Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[]'.
+    Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+        Types of property 'leaseExpiresAt' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(52,65): error TS2322: Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; } | undefined' is not assignable to type 'GrokbotTask | undefined'.
+  Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+    Types of property 'leaseExpiresAt' are incompatible.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(58,11): error TS2375: Type '{ status: "leased"; attempt: number; leaseExpiresAt: string; taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: readonly string[]; expiresAt: string; callbackToken: string; output?: unknown; artifacts?: readonly ArtifactRef[]; errorCode?: string; finishedAt?: ...' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Type '{ status: "leased"; attempt: number; leaseExpiresAt: string; taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; output?: unknown; artifacts?: { ...; }[] | undefined; errorCode?: string | undefined; finishedAt...' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+    Types of property 'artifacts' are incompatible.
+      Type '{ url: string; mimeType?: string | undefined; name?: string | undefined; }[] | undefined' is not assignable to type 'readonly ArtifactRef[]'.
+        Type 'undefined' is not assignable to type 'readonly ArtifactRef[]'.
+packages/webhook/webhook-grokbot/src/index.ts(59,31): error TS2322: Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[] | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }[]'.
+  Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[]'.
+    Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+        Types of property 'leaseExpiresAt' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(61,429): error TS2322: Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[] | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }[]'.
+  Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[]'.
+    Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+        Types of property 'leaseExpiresAt' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(62,902): error TS2322: Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[] | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }[]'.
+  Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[]'.
+    Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+        Types of property 'leaseExpiresAt' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/src/index.ts(63,374): error TS2322: Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[] | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }[]'.
+  Type '(GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; })[]' is not assignable to type 'GrokbotTask[]'.
+    Type 'GrokbotTask | { taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; ... 5 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+      Type '{ taskId: string; workflowId: string; nodeId: string; idempotencyKey: string; input: unknown; allowedOrigins: string[]; expiresAt: string; callbackToken: string; attempt: number; status: "cancelled" | ... 5 more ... | "expired"; ... 4 more ...; finishedAt?: string | undefined; }' is not assignable to type 'GrokbotTask' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+        Types of property 'leaseExpiresAt' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+packages/webhook/webhook-grokbot/tests/service.spec.ts(2,54): error TS6307: File 'E:/dshv2-main/packages/webhook/webhook-grokbot/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.
+scripts/gen-tool-catalog.ts(62,30): error TS6307: File 'E:/dshv2-main/packages/routine/tool-routine/src/index.ts' is not listed within the file list of project 'E:/dshv2-main/tsconfig.host.json'. Projects must list all files or use an 'include' pattern.

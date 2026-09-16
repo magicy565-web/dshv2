@@ -1,0 +1,3 @@
+# Bilingual-pair consistency record. Run verify-translation-pairing --write after edits.
+README.md: 7cf72deb35ad07f18865eb98159b0d64b611d485
+README.zh.md: 3fbbdeae1a5084709ddfb7fbce9522ba560549ee

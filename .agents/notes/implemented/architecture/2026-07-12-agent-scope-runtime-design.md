@@ -60,8 +60,6 @@ Product helpers therefore construct the carrier and pass the domain subject sepa
 
 A Cordis waterfall is middleware-style dispatch. Each listener receives `next()`: calling it delegates to the remaining listeners and base operation, while returning without it short-circuits or replaces the downstream result. Waterfalls power prompt assembly and tool policy; ordinary emit events notify synchronously, and parallel events await all listeners without a veto result.
 
-<a id="scope-routing-one-opaque-key-selects-one-layer"></a>
-
 ## Scope routing: one opaque key selects one layer
 
 The scope package implements the smallest object needed for Cordis routing. Its carrier holds only a composed service filter and scope predicate, while the package records the opaque key privately and exposes the scope fiber's quiescent disposer separately.
@@ -119,28 +117,30 @@ Publication admits and announces resources in the order required by observers:
 1. Enter the session.
 2. Enter the agent.
 3. Announce `session/created`.
-4. Await serial `agent/created` listeners.
-5. Release queued input to the driver.
+4. Announce `agent/created`.
+5. Enable public driving.
+6. Emit `agent/session-start`.
+7. Start the driver.
 
-The agent never drives before both registries and creation listeners finish. A listener may reject or dispose an owner; the transaction retains the scope and session until dispatch settles before teardown continues. Every creation announcement that begins has a matching disposal announcement during rollback. The [awaited creation decision](2026-09-09-awaited-agent-creation.md) owns asynchronous initializer timing.
+The agent never drives before both registries and creation notifications agree. A synchronous listener may veto or dispose an owner; the transaction records publication in progress and waits for that callback stack to unwind before teardown continues. Every creation announcement that begins has a matching disposal announcement during rollback.
 
-A creation listener can request disposal while publication still owns both registry entries. Teardown deactivates immediately and waits for the awaited dispatch before stopping and detaching anything.
+The sequence diagram isolates the non-obvious race: a synchronous creation listener can request disposal while the publication call stack still owns both registry entries. Teardown must deactivate immediately but wait for that stack to unwind before stopping and detaching anything.
 
 ```mermaid
 sequenceDiagram
   participant Tx as AgentCreationTransaction
   participant Registries
-  participant Listener as Creation listener
+  participant Listener as Synchronous listener
   participant Driver
 
   Tx->>Tx: mark publication in progress
   Tx->>Registries: announce agent/created
-  Registries->>Listener: await listener
+  Registries->>Listener: invoke inside the same call stack
   Listener->>Tx: dispose reentrantly
   Tx->>Tx: deactivate, teardown waits for publication
   Tx-->>Listener: disposal request accepted
-  Listener-->>Registries: settle
-  Registries-->>Tx: dispatch settled
+  Listener-->>Registries: return
+  Registries-->>Tx: announcement unwound
   Tx->>Tx: resolve publication settlement
   Tx->>Driver: stop and drain
   Tx->>Registries: detach agent, then session
@@ -151,7 +151,7 @@ sequenceDiagram
 
 Every teardown request joins one memoized path. The order is:
 
-1. Deactivate creation or driving and await creation dispatch.
+1. Deactivate creation or driving and let synchronous publication finish.
 2. Stop and drain the driver, discarding any injection that remains pending.
 3. Detach the agent.
 4. Detach the session.
@@ -159,8 +159,6 @@ Every teardown request joins one memoized path. The order is:
 6. Retire transaction ownership tracking.
 
 This order lets final agent and session events use the matching scoped listeners and keeps persistence observers attached through the final flush. Scope disposal comes last because registration revocation is the externally visible lifetime boundary.
-
-<a id="session-append-materialize-validate-commit-notify"></a>
 
 ## Session append: materialize, validate, commit, notify
 
@@ -234,8 +232,6 @@ This is a trusted same-process extension point, not an authority boundary. A lis
 
 Scope solves the real isolation problem directly. Structured-output contributions register in the child's exact scope, while PTC mode derives its transport and SDK from the same resolved tool view. A second named-protection system would need another ownership and collision rule across arbitrary schema providers—including providers that intentionally contribute duplicate names—without creating a new trust boundary.
 
-<a id="structured-output-commits-only-authoritative-outcomes"></a>
-
 ### Structured output commits only authoritative outcomes
 
 Structured output combines child-scoped composition with a two-phase execution commit. The child registers its `structured_output` tool and instruction before publication; a trusted assembly listener may transform those ordinary contributions and is responsible for preserving the protocol if the child is expected to complete. The tool body validates a candidate and stages it by the current `ToolExecution`, but successful capture is decided only by immutable `tools/result` observations.
@@ -247,8 +243,6 @@ For a PTC mode SDK call, the inner successful result records `{ parentToken, val
 Once a value is pending or committed, a scoped monotonic guard denies later tool calls. The successful structured-output execution calls `exec.concludeTurn()`, so its own immutable result carries `concludesTurn: true` and the loop ends the tool loop at that step. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
 
 Pure PTC mode's registry contribution omits `structured_output` from native wire schemas and exposes it through the generated SDK. The assembly waterfall may deliberately change that presentation; execution still validates against the child-scoped definition, and the listener owns the consistency of any alternate model-visible route it creates.
-
-<a id="three-execution-boundaries-are-deliberately-one-way"></a>
 
 ### Three execution boundaries are deliberately one-way
 
@@ -300,21 +294,19 @@ Start resolves only after `initialize` and `newSession` succeed. Abort, spawn fa
 
 Worker and child-process bridges need more state than same-process registries because messages, process death, and cleanup can settle independently. Their state is organized around those real facts rather than duplicate cancellation protocols.
 
-<a id="workflow-children-are-pending-starts-or-published-records"></a>
-
 ### Workflow children are pending starts or published records
 
 The workflow host keeps pending provider-start promises and published child records. A child moves from pending to published only when async `SubagentRuntime.start()` fulfills; rejected starts clean their partial provider work and produce no child lifecycle pair.
 
-One host-owned AbortController supplies the required signal to pending and live children. Closing workflow admission aborts that signal; quiescence waits for both pending starts and published child disposal. [Workflow sandbox reuse](2026-09-13-workflow-ptc-sandbox-reuse.md) owns PTC process cancellation and the absence of a separate workflow cleanup timer.
+One host-owned AbortController supplies the required signal to pending and live children. Closing workflow admission aborts that signal, so there is no duplicate `ChildCancel` worker RPC or explicit host-side `run.cancel()` fanout. Quiescence waits for both pending starts and published child disposal.
 
-PTC serializes requests and outcomes and owns process termination. The workflow adapter retains terminal-outcome arbitration and child ownership because program settlement, process exit and child quiescence remain independent facts.
+The worker boundary still serializes requests and outcomes. The host retains first-terminal-outcome arbitration, exact child accounting, worker-death handling, grace termination, late/duplicate message rejection, and bounded cleanup because result receipt, worker exit, and child quiescence are genuinely independent facts.
 
 ### Terminal result and physical cleanup remain separate
 
-The workflow result records the first accepted terminal outcome according to the public precedence rules. Choosing that outcome does not release resources: the PTC process and live children still need cleanup, and child disposal must fulfill its provider contract.
+The workflow result records the first accepted terminal outcome according to the public precedence rules. Cleanup can continue after that result is chosen: live children still need disposal, a worker still needs termination, and a slow external backend may outlive the configured grace bound.
 
-Public disposal joins one cleanup operation. Run settlement closes child admission, synthesizes missing lifecycle ends and cleans up children without rewriting an outcome already claimed.
+Public disposal claims its memoized promise before invoking callbacks. Worker death closes admission before processing any queued late child request, synthesizes missing lifecycle ends, and starts child/process cleanup without rewriting an outcome already claimed.
 
 ### ACP prompt settlement does not depend on update delivery
 
@@ -342,7 +334,7 @@ The plugin does not police trusted setup by scanning registries or reject prompt
 
 The event catalog, service catalog, producer/consumer matrix, configuration catalog, module graph, tool catalog, type-equivalence blocks, and scoped-event resolver map are generated or freshness-gated from source. The [TypeScript semantic-gates Agent Note](../../archived/process/2026-07-14-typescript-program-backed-semantic-gates.md) owns Program construction, semantic event discovery, and resolver-generation rules.
 
-Behavioral tests pin scoped routing and disposal, final-entry collision cleanup, publication rollback, ordered quiescence, durable pre/post-commit behavior, live tool filtering across presentation and execution, cooperative prompt assembly, structured-output commit in native and PTC mode, async subagent startup and signal cancellation, workflow terminal arbitration, ACP settlement, and process teardown.
+Behavioral tests pin scoped routing and disposal, final-entry collision cleanup, publication rollback, ordered quiescence, durable pre/post-commit behavior, live tool filtering across presentation and execution, cooperative prompt assembly, structured-output commit in native and PTC mode, async subagent startup and signal cancellation, worker terminal arbitration, ACP settlement, and process teardown.
 
 ## Alternatives considered
 

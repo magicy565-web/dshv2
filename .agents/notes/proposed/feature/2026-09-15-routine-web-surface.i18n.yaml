@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n/README.md).
+# Regenerate after editing either side with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-15-routine-web-surface.md
+2026-09-15-routine-web-surface.md: 30bf54cbd2bd601689dd3649f0eb7759539b1f46
+2026-09-15-routine-web-surface.zh.md: b082aad23e455e6cfa3df58e9eae3a1440ff36c2

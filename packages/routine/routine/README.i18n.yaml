@@ -1,0 +1,5 @@
+# Bilingual-pair consistency record (docs/i18n/README.md).
+# Regenerate after editing either side with:
+#   pnpm run verify-translation-pairing --write packages/routine/routine/README.md
+README.md: 039b189dd9c24e014595aee67be8437d524ff425
+README.zh.md: 1be91629d75b48fbbe7c9c13c765f393810948f7

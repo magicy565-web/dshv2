@@ -1,0 +1,12 @@
+/** Service Definition for the Shopify capability seam. */
+export * from './types.ts'
+export { ShopifyApiError, ShopifyGraphqlClient, verifyShopifyHmac } from './client.ts'
+export { buildOAuthUrl, checkShopHealth, createOAuthState, exchangeOfflineToken, validateOAuthCallback } from './oauth.ts'
+export { StorefrontCartClient } from './cart.ts'
+export type { CartLine, CartLineInput, CartSnapshot } from './cart.ts'
+export { GraphqlStoreProvider } from './graphql-provider.ts'
+export { parseOAuthRequest, verifyOAuthQueryHmac, verifyWebhookRequest } from './http.ts'
+export { EncryptedTokenVault, InMemoryShopifyStoreService, OAuthStoreProvider, PublicStoreProvider, WebhookInbox } from './providers.ts'
+export { ShopifyStoreService } from './service.ts'
+export type { ShopifyStoreProvider } from './service.ts'
+export { ShopifyStoreService as default } from './service.ts'

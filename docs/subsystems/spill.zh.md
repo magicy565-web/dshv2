@@ -44,7 +44,7 @@ interface SpillOwner {
 /**
  * Producer of a spilled artifact. Tool results carry their model-issued call id;
  * session references identify the captured source session instead. Descriptive
- * source description only, never access control.
+ * provenance only, never access control.
  */
 type SpillSource = {
   kind: 'tool'

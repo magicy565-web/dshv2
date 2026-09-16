@@ -41,10 +41,7 @@ kind: "package-group"
 | [`ui-primitives/`](ui-primitives/README.zh.md) | 提供共享 React 控件、图标与内容渲染器 | — |
 | [`ui-attachment/`](ui-attachment/README.zh.md) | 注册输入框与消息图片的附件呈现 | — |
 | [`ui-layout/`](ui-layout/README.zh.md) | 排列应用的主要区域 | — |
-| [`ui-dockkit/`](ui-dockkit/README.zh.md) | 提供停靠布局操作与 React 组件 | — |
 | [`ui-sidebar/`](ui-sidebar/README.zh.md) | 展示工作区与会话导航 | — |
-| [`ui-sidebar-right/`](ui-sidebar-right/README.zh.md) | 管理右侧 Sidebar 及其 tab 类型 | `ctx.sidebarRight`, `ctx.sidebarRightTabs` |
-| [`ui-sidebar-documentpreview/`](ui-sidebar-documentpreview/README.zh.md) | 在右侧 Sidebar 的 tab 中显示文档 | `ctx.documentPreviews` |
 | [`resources/`](resources/README.zh.md) | 统一资源模型：`useResource` 会话标准钩子背后的协议提供方 | `ctx.resources` |
 | [`ui-sidebar-files/`](ui-sidebar-files/README.zh.md) | 右侧 Sidebar 的工作区文件树 tab 类型 | — |
 | [`ui-brand-official/`](ui-brand-official/README.zh.md) | 用官方名称与标记填充通用浏览器品牌 slot | — |
@@ -55,6 +52,7 @@ kind: "package-group"
 | [`ui-tool/`](ui-tool/README.zh.md) | 编排工具调用树与按工具键控的视图 | — |
 | [`ui-workflow-run/`](ui-workflow-run/README.zh.md) | 把持久工作流运行回放为嵌套对话折叠项 | — |
 | [`ui-goal/`](ui-goal/README.zh.md) | 展示与管理当前目标 | — |
+| [`ui-routine/`](ui-routine/README.zh.md) | 独立会话任务的 Routine 管理中心 | — |
 | [`ui-trajectory/`](ui-trajectory/README.zh.md) | 提供 agent（智能体）活动的其他视图 | — |
 | [`ui-commands/`](ui-commands/README.zh.md) | 提供会话感知的命令发现与分发 | — |
 | [`ui-input-trigger/`](ui-input-trigger/README.zh.md) | 协调内联命令与引用建议 | — |
