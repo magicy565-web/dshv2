@@ -32,7 +32,7 @@ describe('InMemorySiteService', () => {
     const site = service.createSite(TenantId('t1'), 'Demo', StoreConnectionId('c1'))
     const spec = service.resolve({ tenantId: TenantId('t1'), siteId: site.id })
     const first = await service.createRevision(spec, { pages: [{ id: 'h', kind: 'home', path: '/', title: 'Home' }] }, 'user')
-    await service.createRevision(spec, { pages: [{ id: 'h', kind: 'home', path: '/', title: 'Changed' }] }, 'user')
+    await service.createRevision(spec, { baseRevisionId: first.id, pages: [{ id: 'h', kind: 'home', path: '/', title: 'Changed' }] }, 'user')
     const rollback = await service.rollback(spec, first.id)
     expect(rollback.source).toBe('rollback')
     expect(rollback.changeSet.pages?.[0]?.title).toBe('Home')

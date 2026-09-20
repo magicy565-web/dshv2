@@ -4,6 +4,7 @@ export const style = `
 .ent{height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-layer-1);padding:32px 36px;box-sizing:border-box}
 .ent *,.ent-dialog *{box-sizing:border-box;letter-spacing:0}
 .ent-inner{max-width:1080px;margin:0 auto}
+.ent-computers .ent-actions{flex-wrap:wrap}.ent-computers .ent-actions>a{width:auto;height:auto;white-space:nowrap}.ent-computers p{line-height:1.6;overflow-wrap:anywhere}.ent-computers .ent-section{padding-top:24px}.ent-computers .ent-task-row>div{min-width:0}
 .ent h1{font-size:24px;line-height:32px;margin:0;overflow-wrap:anywhere}.ent h2{font-size:16px;margin:0 0 20px}
 .ent-header,.ent-identity,.ent-toolbar,.ent-actions{display:flex;align-items:center;gap:12px}
 .ent-header{justify-content:space-between;margin-bottom:28px;flex-wrap:wrap}.ent-identity{min-width:0}.ent-identity>div{min-width:0}

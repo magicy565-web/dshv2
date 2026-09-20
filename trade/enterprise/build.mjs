@@ -2,7 +2,7 @@
 import { build } from 'tsdown'
 import { fileURLToPath } from 'node:url'
 process.chdir(fileURLToPath(new URL('.', import.meta.url)))
-await build({ config: false, entry: { index: 'src/host.ts' }, format: 'esm', platform: 'node', outDir: 'lib', dts: false, clean: true, outputOptions: { entryFileNames: 'index.js' }, deps: { alwaysBundle: ['zod', 'file-type', 'range-parser'], neverBundle: ['officeparser'] } })
+await build({ config: false, entry: { index: 'src/host.ts' }, format: 'esm', platform: 'node', outDir: 'lib', dts: false, clean: true, outputOptions: { entryFileNames: 'index.js' }, deps: { alwaysBundle: ['zod', 'file-type', 'range-parser'], neverBundle: ['officeparser', 'esbuild'] } })
 await build({
   config: false, entry: { client: 'src/client.tsx' }, format: 'cjs', platform: 'browser', outDir: 'lib', dts: false, clean: false,
   deps: { alwaysBundle: ['zod'], neverBundle: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] },

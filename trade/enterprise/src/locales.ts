@@ -1,5 +1,7 @@
 /** Enterprise UI copy; both dictionaries share one checked key set. */
+import { supplierZh, supplierEn } from './supplier-locales.ts'
 export const zh = {
+  ...supplierZh,
   geoVerifyQuestion: '请核对产品定义、用途、全部公开事实和引用来源，包括价格、起订量及有效期。确认表示你已核验该版本资料；仅启用内部预览，不会公开发布，也不代表第三方认证。',
   geoFinishQuestion: '以下档案是否已覆盖本次需要建立的企业和产品范围？',
   geoStart: '开始产品 GEO', geoContinue: '继续产品 GEO', geoConfigure: '产品 GEO',
@@ -38,6 +40,7 @@ export const zh = {
 export type EnterpriseKey = keyof typeof zh
 /** English UI dictionary. */
 export const en: Record<EnterpriseKey, string> = {
+  ...supplierEn,
   geoVerifyQuestion: 'Check the product definition, uses, all public facts and cited sources, including price, MOQ and expiry. Confirmation attests that you verified this version. It enables internal preview only, not public publication or third-party certification.',
   geoFinishQuestion: 'Do these records cover the company and products you wanted to onboard in this conversation?',
   geoStart: 'Start product GEO', geoContinue: 'Continue product GEO', geoConfigure: 'Product GEO',

@@ -101,7 +101,7 @@ test('buyer research skill saves evidence-backed opportunities and rejects stale
   const restored = await (await app.call('/opportunities')).json()
   assert.equal(restored.opportunities[0].status, 'contacted')
   const db = new DatabaseSync(join(directory, 'enterprise.sqlite'))
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 11)
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 13)
   db.close()
 })
 
@@ -169,6 +169,14 @@ test('extracts Office text and returns cited results through the real tool runti
   assert.equal(result.value.profile.citation, '[企业档案]')
   assert.equal(result.value.matches[0].citation, '[资料: Capabilities.docx#片段1]')
   assert.match(result.content[0].text, /Precision export components/)
+  const match = result.value.matches[0]
+  const passage = await app.execute('enterprise_document_read', { fileId: match.fileId, chunk: match.chunk })
+  assert.equal(passage.isError, false)
+  assert.equal(passage.value.content, match.content)
+  assert.equal(JSON.parse(passage.content[0].text).citation, match.citation)
+  const supplier = await app.execute('enterprise_supplier_query', {})
+  assert.equal(supplier.isError, false)
+  assert.deepEqual(supplier.value.records, [])
 })
 
 test('migrates version-one records and indexes existing text without inventing a submission time', async t => {

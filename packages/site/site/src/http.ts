@@ -3,6 +3,7 @@ import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
 import type { SiteService } from './index.ts'
 import { PublishJobId, SiteId, SiteRevisionId } from './types.ts'
 import { parseSiteChangeSet } from './snapshot.ts'
+import { renderStaticPreview } from './preview.ts'
 
 /** Required host policies for the editor adapter. */
 export interface SiteHttpOptions {
@@ -55,7 +56,9 @@ async function body(request: Request, limit: number): Promise<Record<string, unk
  * @param options - Host authentication, connection authorization and request limits.
  * @returns Handler accepting a relative route such as /sites or /sites/id/revisions.
  */
-export function createSiteHttpHandler(sites: SiteService, options: SiteHttpOptions): (request: Request, route: string) => Promise<Response> {
+export function createSiteHttpHandler(
+  sites: SiteService, options: SiteHttpOptions,
+): (request: Request, route: string) => Promise<Response> {
   if (!Number.isSafeInteger(options.maxBodyBytes) || options.maxBodyBytes < 1) throw new Error('maxBodyBytes must be a positive safe integer')
   const origin = new URL(options.publicOrigin)
   if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password) throw new Error('publicOrigin must use HTTP(S) without credentials')
@@ -72,16 +75,16 @@ export function createSiteHttpHandler(sites: SiteService, options: SiteHttpOptio
         if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405)
         const input = await body(request, options.maxBodyBytes)
         const name = field(input.name, 'name')
-        const connectionId = field(input.connectionId, 'connectionId') as StoreConnectionId
-        await options.authorizeConnection(tenantId, connectionId)
+        const connectionId = input.connectionId === undefined ? undefined : field(input.connectionId, 'connectionId') as StoreConnectionId
+        if (connectionId !== undefined) await options.authorizeConnection(tenantId, connectionId)
         return json(sites.createSite(tenantId, name, connectionId), 201)
       }
       const spec = { tenantId, siteId: SiteId(siteId) }
       if (!sites.get(spec)) return json({ error: 'site not found' }, 404)
       const action = parts[2]
       const methods = action === 'revisions' ? ['GET', 'POST']
-        : action === undefined || ['jobs', 'content', 'diff', 'preview'].includes(action) ? ['GET']
-        : ['rollback', 'cancel', 'publish'].includes(action) ? ['POST'] : undefined
+        : action === undefined || ['jobs', 'content', 'diff', 'preview', 'artifact'].includes(action) ? ['GET']
+          : ['rollback', 'cancel', 'publish'].includes(action) ? ['POST'] : undefined
       if (!methods) return json({ error: 'not found' }, 404)
       if (!methods.includes(request.method)) return json({ error: 'method not allowed' }, 405)
       const query = new URL(request.url).searchParams
@@ -92,12 +95,26 @@ export function createSiteHttpHandler(sites: SiteService, options: SiteHttpOptio
         const revisionId = SiteRevisionId(field(query.get('revisionId'), 'revisionId'))
         if (!sites.getRevision(spec, revisionId)) return json({ error: 'revision not found' }, 404)
         if (action === 'content') return json(sites.content(spec, revisionId))
+        if (action === 'artifact') {
+          try { return json(sites.build(spec, revisionId)) }
+          catch (error) { return json({ error: error instanceof Error ? error.message : 'site build failed' }, 422) }
+        }
         if (action === 'diff') {
           const base = query.get('baseRevisionId')
           if (base && !sites.getRevision(spec, SiteRevisionId(base))) return json({ error: 'base revision not found' }, 404)
           return json(sites.diff(spec, revisionId, base ? SiteRevisionId(base) : undefined))
         }
         if (action === 'preview') {
+          if (sites.content(spec, revisionId).project) {
+            try {
+              return await renderStaticPreview(sites.build(spec, revisionId), query.get('path') ?? '/', (path) => {
+                const url = new URL(request.url)
+                url.searchParams.set('path', path)
+                return `${url.pathname}${url.search}`
+              }, options.maxBodyBytes)
+            }
+            catch (error) { return json({ error: error instanceof Error ? error.message : 'site build failed' }, 422) }
+          }
           const pageId = field(query.get('pageId'), 'pageId')
           if (!sites.content(spec, revisionId).pages.some(page => page.id === pageId)) return json({ error: 'page not found' }, 404)
           return new Response(sites.preview(spec, revisionId, pageId, origin.origin), { headers: {

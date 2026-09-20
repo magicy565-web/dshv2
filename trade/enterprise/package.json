@@ -24,10 +24,12 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && npm run test:sites && node --test test/*.test.mjs",
+    "test:sites": "vitest run --config vitest.sites.config.ts",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json"
   },
   "dependencies": {
+    "esbuild": "0.28.1",
     "file-type": "21.3.4",
     "officeparser": "7.8.0",
     "range-parser": "1.3.0",
@@ -42,6 +44,7 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
     "@types/range-parser": "1.2.7",
     "@types/react": "18.3.1",
     "fflate": "0.8.3",

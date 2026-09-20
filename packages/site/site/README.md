@@ -1,5 +1,5 @@
 ---
-description: "Structured site revisions and publication contracts for AI-built Shopify sites."
+description: "Persistent website source projects, revision review and publication jobs with optional Shopify commerce."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,13 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package owns tenant-scoped site records, revisions, typed change sets and publication jobs. The Agent produces `SiteChangeSet`; `validateSiteChangeSet` rejects invalid data before a provider translates it to Shopify resources.
+Create tenant-owned websites without a commerce connection, save source projects and assets, compare revisions, and restore historical content. `SiteChangeSet` accepts structured pages or a complete project tree. Shopify adapters require an authorized store only when publishing to Shopify.
+
+## Source projects
+
+Projects record their framework (`static` or `nextjs`) and source files with UTF-8 text or canonical base64 bytes. Revisions retain complete file trees; an omitted project inherits its predecessor. Revision comparisons include added, removed and changed paths. Rollback restores the complete selected tree. Paths reject traversal, portable filesystem collisions, file-as-directory conflicts, credential filenames and repository metadata before storage.
+
+`build` produces deterministic static artifacts tied to the exact revision. It requires `index.html`, preserves binary resources and never runs project code on the Host. Next.js projects can be stored but require a separate isolated framework build provider. Private previews use a sandbox without editor DOM or cookie access, disable network requests from scripts, and return `no-store` and `noindex`. Preview compilation resolves only saved project files, not Host files or installed Host packages.
 
 ## Publication lifecycle
 
@@ -17,7 +23,7 @@ The memory provider queues jobs separately from execution. Duplicate queued or r
 
 Revision inputs and returned records are detached from stored state. Rollback creates a new revision without overwriting history. Revision and publication history use newest-insertion-first ordering, including records created in the same millisecond.
 
-Partial edits record their current draft as the base. `content` resolves inherited pages, theme and product order; explicit empty arrays clear a collection. `diff` compares resolved content for page additions, removals, edits and ordering changes. `preview` renders a selected stored page without publishing it. Rollback stores the target's complete content and stops inheritance from the draft it replaces. These reads reject revisions owned by another tenant or site.
+Every edit after the first revision must name the current draft as its base; a missing or outdated base rejects the write. `content` resolves inherited pages, theme, product order and source files; explicit empty arrays clear a collection. `diff` compares resolved content. `preview` renders a selected stored page without publishing it. Rollback stores the target's complete content and stops inheritance from the draft it replaces. These reads reject revisions owned by another tenant or site.
 
 ## Editor HTTP
 
@@ -37,11 +43,11 @@ The `./sqlite` entry exports `SqliteSiteStateStore`; pass it as the third constr
 
 - File snapshot saves are explicit; the optional SQLite adapter provides automatic commits. It stores the complete service snapshot per transaction and is intended for one active service per database, not distributed publication. Session events and UI projections remain unimplemented.
 - `createShopifySitePublisher` supplies the controlled adapter for an OAuth Shopify provider; callers must provide the selected theme id and an approved renderer.
-- The first validator deliberately supports only controlled template fields; arbitrary Liquid and JavaScript are not accepted.
+- JavaScript is accepted as project source and runs only in the visitor browser. Next.js execution, independent hosting, deployment settings and domain management require additional providers. The structured page renderer remains a controlled template.
 
 ## Model Experience
 
-The package provides the typed data accepted by a future site editing tool. It does not register a model-facing tool.
+The package supplies typed editing and publication operations. It does not register model-facing tools; the [enterprise Sites consumer](../../../trade/enterprise/README.md#sites-workspace) owns their registration.
 
 #### KV Cache effect
 

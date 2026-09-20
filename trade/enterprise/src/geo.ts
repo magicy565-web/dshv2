@@ -66,8 +66,9 @@ export function geoStore(db: DatabaseSync) {
       if (!current || current.kind !== 'product' || current.status !== 'confirmed' || !current.product) throw new GeoError(409, 'geoIncomplete')
       return write({ ...current, product: { ...current.product, publication }, updatedAt: new Date().toISOString() })
     }),
-    propose: (id: GeoRecord['id'], expectedRevision: number, fields: GeoFields, sessionId: GeoRecord['sessionId'], supersedesId: GeoRecord['id'] | null = null): GeoRecord => transact(() => {
+    propose: (id: GeoRecord['id'], expectedRevision: number, fields: GeoFields, sessionId: GeoRecord['sessionId'], supersedesId: GeoRecord['id'] | null = null, createdBy: GeoRecord['createdBy'] = 'agent'): GeoRecord => transact(() => {
       if (fields.product && fields.kind !== 'product') throw new GeoError(400, 'invalid')
+      if (fields.supplier && fields.kind !== 'company') throw new GeoError(400, 'invalid')
       if (fields.product) fields = { ...fields, product: normalizeProduct(fields.product) }
       const existing = get(id)
       if (supersedesId) {
@@ -83,7 +84,7 @@ export function geoStore(db: DatabaseSync) {
       }
       const value = progress()
       saveProgress({ ...value, completedAt: null, revision: value.revision + 1 })
-      return write({ ...fields, sessionId, supersedesId, id, revision: (existing?.revision ?? 0) + 1, status: 'draft', createdBy: 'agent', updatedAt: new Date().toISOString(), confirmedAt: null })
+      return write({ ...fields, sessionId, supersedesId, id, revision: (existing?.revision ?? 0) + 1, status: 'draft', createdBy, updatedAt: new Date().toISOString(), confirmedAt: null })
     }),
     confirm: (id: GeoRecord['id'], expectedRevision: number, onConfirm: (record: GeoRecord) => void): GeoRecord => transact(() => {
       const current = get(id)

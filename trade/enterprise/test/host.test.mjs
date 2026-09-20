@@ -3,8 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { apply } from '../lib/index.js'
+import { apply, Config } from '../lib/index.js'
 import { productFixture } from './geo-fixture.mjs'
+import { supplierFixture } from './supplier-fixture.mjs'
+import { Context } from '@deepseek-ai/cordis'
+import { Readable } from 'node:stream'
 
 const profile = {
   name: 'Acme Export',
@@ -30,6 +33,7 @@ const limits = {
 }
 
 async function mount(directory, overrides = {}) {
+  const services = new Context()
   const routes = new Map()
   let activate
   let tool
@@ -40,6 +44,7 @@ async function mount(directory, overrides = {}) {
   let review
   let attachments
   const ctx = {
+    reflect: services.reflect,
     webServer: {
       register(route) {
         assert.ok(!route.path.startsWith('/api/'), 'public routes use the Web server')
@@ -69,7 +74,9 @@ async function mount(directory, overrides = {}) {
   }
   apply(ctx, { directory, ...limits, ...overrides })
   assert.ok(activate)
-  const dispose = await activate()
+  const stop = await activate()
+  let disposal
+  const dispose = () => disposal ??= (async () => { await stop(); await services.fiber.dispose() })()
   const request = async (path, init) => {
     const url = new URL(`http://localhost/api/enterprise${path}`)
     const route = routes.get(url.pathname)
@@ -401,4 +408,265 @@ test('registers the site editor on one valid authenticated connection route', as
   t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
   assert.ok(harness.routes.has('/api/enterprise/sites'))
   assert.equal([...harness.routes.keys()].some(path => path.includes(':id')), false)
+  assert.ok(harness.tools.has('site_create'))
+  const response = await harness.request('/sites', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Independent site' }) })
+  assert.equal(response.status, 201)
+  assert.equal((await response.json()).connectionId, undefined)
+})
+
+test('site tools save a real project, preserve historical versions and reject stale edits', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-trade-site-tools-'))
+  const harness = await mount(directory, { maxFileBytes: 16384, maxTotalBytes: 32768 })
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const execute = (name, args) => harness.tools.get(name).execute(args, { signal: new AbortController().signal })
+  const site = await execute('site_create', { name: 'Studio website' })
+  const html = '<!doctype html><title>Studio</title><button>Click</button><script src="app.js"></script>'
+  const first = await execute('site_update_draft', { siteId: site.id, expectedRevisionId: null, framework: 'static', files: [{ path: 'index.html', content: html, encoding: 'utf8' }, { path: 'app.js', content: 'document.querySelector("button").onclick = event => { event.target.textContent = "Clicked" }', encoding: 'utf8' }] })
+  const preview = await execute('site_preview', { siteId: site.id, revisionId: first.revisionId })
+  const response = await harness.request(preview.previewUrl.replace('/api/enterprise', ''))
+  assert.equal(response.status, 200, await response.clone().text())
+  assert.match(await response.text(), /<title>Studio<\/title>/)
+  assert.match(response.headers.get('content-security-policy'), /sandbox allow-scripts;/)
+  await assert.rejects(execute('site_update_draft', { siteId: site.id, expectedRevisionId: null, framework: 'static', files: [] }), /conflict/)
+  const second = await execute('site_update_draft', { siteId: site.id, expectedRevisionId: first.revisionId, framework: 'static', files: [{ path: 'styles.css', content: 'body { color: blue }', encoding: 'utf8' }] })
+  const restored = await execute('site_rollback', { siteId: site.id, expectedRevisionId: second.revisionId, revisionId: first.revisionId })
+  const read = await execute('site_get', { siteId: site.id, revisionId: restored.id })
+  assert.equal(read.content.project.files.length, 2)
+  assert.equal(read.content.project.files[0].content, html)
+  assert.equal(read.revisions.length, 3)
+  assert.equal(read.revisions[0].changeSet, undefined)
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(harness.tools.get('site_create').execute({ name: 'Cancelled' }, { signal: controller.signal }), /cancelled/)
+  await harness.dispose()
+  assert.equal(harness.tools.has('site_create'), false)
+})
+
+async function supplierSetup(harness) {
+  await harness.request('/profile', { method: 'POST', body: JSON.stringify(profile) })
+  const response = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'catalog.txt' }, body: 'Custom printed viscose fabrics. Historical sample lead time 7 days. Exact GSM and MOQ need confirmation.' })
+  assert.equal(response.status, 201)
+  const fileId = (await response.json()).files[0].id
+  const fields = { kind: 'company', name: 'Weave Studio', description: 'Apparel fabrics', sections: [{ label: 'Supply', content: 'Custom printed viscose', source: 'Supplier catalog' }], questions: '', supplier: supplierFixture(fileId) }
+  return { fileId, fields }
+}
+
+async function externalRequest(harness, path, token, method = 'GET', payload) {
+  const route = harness.routes.get(new URL(path, 'http://localhost').pathname)
+  assert.ok(route, `external route ${path} is registered`)
+  let status, headers, body
+  const request = Object.assign(Readable.from(payload === undefined ? [] : [Buffer.from(JSON.stringify(payload))]), { method, url: path, headers: { authorization: token === undefined ? undefined : `Bearer ${token}` } })
+  await route.handler(request, {
+    writeHead(value, fields) { status = value; headers = fields },
+    end(value) { body = value },
+  })
+  return { status, headers, data: JSON.parse(body) }
+}
+
+test('supplier queries require review, retain unknowns and expiry, and follow confirmed revisions', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-supplier-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true }) })
+  harness = await mount(directory)
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-session' } } }
+  const call = (name, args) => harness.tools.get(name).execute(args, exec)
+  const { fileId, fields } = await supplierSetup(harness)
+  const id = crypto.randomUUID()
+  await call('enterprise_geo_draft', { id, expectedRevision: 0, fields })
+  assert.deepEqual((await call('enterprise_supplier_query', {})).records, [])
+  await call('enterprise_geo_review', { id, expectedRevision: 1, language: 'zh' })
+  assert.match(harness.getReview().questions[0].detail, /Exact weight needs confirmation/)
+  const query = await call('enterprise_supplier_query', { query: 'viscose' })
+  assert.equal(query.records[0].items.length, 2)
+  assert.equal(query.records[0].relations[0].type, 'supports')
+  assert.equal(query.records[0].items[0].claims[1].status, 'UNKNOWN')
+  assert.equal(query.records[0].items[0].claims[2].expired, true)
+  assert.equal(query.records[0].evidence[0].availability, 'available')
+  assert.equal((await call('enterprise_supplier_query', { kind: 'partner_program' })).records[0].total, 0)
+  const found = await call('enterprise_search', { query: 'viscose' })
+  assert.equal(found.matches[0].fileId, fileId)
+  const passage = await call('enterprise_document_read', { fileId, chunk: 1 })
+  assert.equal(passage.content, found.matches[0].content)
+  assert.match(passage.contentHash, /^[a-f0-9]{64}$/)
+  await assert.rejects(call('enterprise_document_read', { fileId, chunk: 0 }))
+  await assert.rejects(call('enterprise_document_read', { fileId, chunk: 999 }), /missing/)
+  const revisionId = crypto.randomUUID()
+  await call('enterprise_geo_draft', { id: revisionId, expectedRevision: 0, supersedesId: id, fields: { ...fields, name: 'Revised Studio' } })
+  assert.equal((await call('enterprise_supplier_query', {})).records[0].id, id)
+  await call('enterprise_geo_review', { id: revisionId, expectedRevision: 1, language: 'zh' })
+  assert.equal((await call('enterprise_supplier_query', {})).records[0].id, revisionId)
+  await harness.dispose()
+  harness = await mount(directory, { maxKnowledgeResults: 1 })
+  const first = (await call('enterprise_supplier_query', {})).records[0]
+  assert.equal(first.hasMore, true)
+  assert.equal(first.relations[0].to, 'launch')
+  const related = (await call('enterprise_supplier_query', { recordId: revisionId, nodeId: first.relations[0].to })).records[0]
+  assert.equal(related.items[0].kind, 'solution')
+  const second = (await call('enterprise_supplier_query', { recordId: revisionId, offset: 1 })).records[0]
+  assert.equal(second.items[0].id, 'launch')
+  assert.equal(second.hasMore, false)
+  await harness.request('/delete', { method: 'POST', body: JSON.stringify({ id: fileId }) })
+  assert.equal((await call('enterprise_supplier_query', {})).records[0].evidence[0].availability, 'missing')
+  await assert.rejects(call('enterprise_document_read', { fileId, chunk: 1 }), /missing/)
+})
+
+test('supplier drafts reject fabricated verification, dangling references and missing document chunks', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-supplier-invalid-'))
+  const harness = await mount(directory)
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { fields } = await supplierSetup(harness)
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-session' } } }
+  const invalid = [
+    graph => { graph.nodes[0].claims[0].status = 'VERIFIED' },
+    graph => { graph.nodes[0].claims[0].evidenceIds = ['missing'] },
+    graph => { graph.nodes[0].claims[0].evidenceIds = [] },
+    graph => { graph.relations[0].to = 'missing' },
+    graph => { graph.nodes.push(structuredClone(graph.nodes[0])) },
+    graph => { graph.evidence[0].source.chunk = 99 },
+    graph => { graph.nodes[0].productRecordId = crypto.randomUUID() },
+    graph => { graph.evidence[0].source = { type: 'web', uri: 'javascript:alert(1)', publishedAt: null } },
+  ]
+  for (const mutate of invalid) {
+    const supplier = structuredClone(fields.supplier)
+    mutate(supplier)
+    await assert.rejects(harness.tools.get('enterprise_geo_draft').execute({ id: crypto.randomUUID(), expectedRevision: 0, fields: { ...fields, supplier } }, exec))
+  }
+  await assert.rejects(harness.tools.get('enterprise_geo_draft').execute({ id: crypto.randomUUID(), expectedRevision: 0, fields: { ...fields, kind: 'product' } }, exec), /invalid/)
+})
+
+test('external procurement API requires a key and explicit revision and document grants', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-supplier-api-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true }) })
+  harness = await mount(directory)
+  assert.equal(harness.routes.has('/supplier/v1/query'), false)
+  const { fileId, fields } = await supplierSetup(harness)
+  const secretFile = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'private.txt' }, body: 'viscose private customer pricing' })
+  const privateId = (await secretFile.json()).files.find(item => item.id !== fileId).id
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-session' } } }
+  const call = (name, args) => harness.tools.get(name).execute(args, exec)
+  const id = crypto.randomUUID()
+  await call('enterprise_geo_draft', { id, expectedRevision: 0, fields })
+  await call('enterprise_geo_review', { id, expectedRevision: 1, language: 'zh' })
+  const token = 'test-supplier-token-with-at-least-32-characters'
+  await harness.dispose()
+  harness = await mount(directory, { externalAgentToken: token, externalSupplierRecords: [{ id, revision: 2 }], externalDocumentIds: [] })
+  const api = (path, key = token, method) => externalRequest(harness, `/supplier/v1/${path}`, key, method)
+  assert.equal((await externalRequest(harness, '/supplier/v1/query')).status, 401)
+  assert.equal((await api('query', 'wrong')).status, 401)
+  assert.equal((await api('query', token, 'POST')).status, 405)
+  assert.equal((await api('manifest')).data.readOnly, false)
+  assert.equal((await api('query?offset=-1')).status, 400)
+  assert.equal((await api('query?workspaceId=other')).status, 400)
+  const redacted = await api('query')
+  assert.equal(redacted.headers['cache-control'], 'no-store')
+  assert.deepEqual(redacted.data.records[0].evidence, [{ id: 'catalog', availability: 'not_shared' }])
+  assert.deepEqual((await api('search?query=viscose')).data.matches, [])
+  assert.equal((await api(`document?fileId=${fileId}&chunk=1`)).status, 404)
+  await harness.dispose()
+  harness = await mount(directory, { externalAgentToken: token, externalSupplierRecords: [{ id, revision: 2 }], externalDocumentIds: [fileId] })
+  const result = await api('search?query=viscose')
+  assert.equal(result.data.matches.length, 1)
+  assert.equal(result.data.matches[0].fileId, fileId)
+  assert.equal((await api(`document?fileId=${privateId}&chunk=1`)).status, 404)
+  const document = await api(`document?fileId=${fileId}&chunk=1`)
+  assert.equal(document.data.content, result.data.matches[0].content)
+  assert.equal((await api('query?kind=capability')).data.records[0].evidence[0].availability, 'available')
+  const replacement = crypto.randomUUID()
+  await call('enterprise_geo_draft', { id: replacement, expectedRevision: 0, supersedesId: id, fields })
+  assert.equal((await api('query')).data.records.length, 1)
+  await call('enterprise_geo_review', { id: replacement, expectedRevision: 1, language: 'zh' })
+  assert.deepEqual((await api('query')).data.records, [])
+  await harness.request('/delete', { method: 'POST', body: JSON.stringify({ id: fileId }) })
+  assert.deepEqual((await api('search?query=viscose')).data.matches, [])
+  assert.equal((await api(`document?fileId=${fileId}&chunk=1`)).status, 404)
+  await harness.dispose()
+  harness = await mount(directory, { externalAgentToken: `${token}-rotated`, externalSupplierRecords: [], externalDocumentIds: [] })
+  assert.equal((await api('query')).status, 401)
+})
+
+test('external configuration rejects missing credentials and invalid grants', () => {
+  const base = { directory: join(tmpdir(), 'unused-supplier-config'), ...limits }
+  assert.equal(Config.safeParse(base).success, true)
+  assert.equal(Config.safeParse({ ...base, externalAgentToken: 'short' }).success, false)
+  assert.equal(Config.safeParse({ ...base, externalDocumentIds: [crypto.randomUUID()] }).success, false)
+  assert.equal(Config.safeParse({ ...base, externalAgentToken: 'a'.repeat(32), externalSupplierRecords: [{ id: crypto.randomUUID(), revision: 0 }] }).success, false)
+})
+
+test('supplier workspace reviews sources, compares requirements and saves revision-bound requests', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'supplier-workflow-'))
+  let harness = await mount(directory)
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const post = (path, data) => harness.request(`/supplier/${path}`, { method: 'POST', body: JSON.stringify(data) })
+  const { fileId, fields } = await supplierSetup(harness)
+  fields.supplier.nodes[0].claims = [{ ...fields.supplier.nodes[0].claims[0], qualification: '' }]
+  const id = crypto.randomUUID()
+  assert.equal((await post('draft', { id, expectedRevision: 0, fields })).status, 200)
+  assert.equal((await post('confirm', { id, revision: 1 })).status, 200)
+  assert.equal((await post('confirm', { id, revision: 1 })).status, 409)
+  const matchInput = { recordId: id, requirements: [{ attribute: 'material', operator: 'equals', value: 'viscose' }] }
+  assert.equal((await (await post('match', matchInput)).json()).candidates[0].status, 'POSSIBLE')
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-review' } } }
+  harness.setAnswer({ answers: [{ id: 'supplier-verify', selected: ['修改'] }] })
+  assert.equal((await harness.tools.get('enterprise_supplier_verify').execute({ id, expectedRevision: 2, language: 'zh' }, exec)).verified, false)
+  harness.setAnswer({ answers: [{ id: 'supplier-verify', selected: ['确认'] }] })
+  assert.equal((await harness.tools.get('enterprise_supplier_verify').execute({ id, expectedRevision: 2, language: 'zh' }, exec)).verified, true)
+  assert.equal((await (await post('match', matchInput)).json()).candidates[0].status, 'MATCH')
+  const request = { id: crypto.randomUUID(), recordId: id, recordRevision: 2, nodeIds: ['printing'], type: 'sample', name: 'Buyer', email: 'buyer@example.com', message: 'Please confirm 130 GSM and MOQ.' }
+  const prepared = await harness.tools.get('enterprise_procurement_prepare').execute(request, exec)
+  assert.equal(prepared.status, 'draft')
+  assert.deepEqual(await harness.tools.get('enterprise_procurement_prepare').execute(request, exec), prepared)
+  await assert.rejects(harness.tools.get('enterprise_procurement_prepare').execute({ ...request, message: 'Different' }, exec), /supplierConflict/)
+  assert.equal((await post('request-status', { id: request.id, expectedRevision: 1, status: 'in_review' })).status, 409)
+  assert.equal((await post('request-status', { id: request.id, expectedRevision: 1, status: 'submitted' })).status, 200)
+  assert.equal((await post('request-status', { id: request.id, expectedRevision: 1, status: 'closed' })).status, 409)
+  assert.equal((await post('request-status', { id: request.id, expectedRevision: 2, status: 'in_review' })).status, 200)
+  assert.equal((await post('request-status', { id: request.id, expectedRevision: 3, status: 'closed' })).status, 200)
+  await harness.dispose()
+  harness = await mount(directory)
+  const persisted = await (await harness.request('/supplier')).json()
+  assert.equal(persisted.requests[0].status, 'closed')
+  assert.equal(persisted.receipts[0].revision, 2)
+  await harness.request('/delete', { method: 'POST', body: JSON.stringify({ id: fileId }) })
+  assert.equal((await (await post('match', matchInput)).json()).candidates[0].status, 'POSSIBLE')
+  assert.equal((await post('verify', { id, revision: 2 })).status, 404)
+})
+
+test('live sharing changes govern external matching and idempotent inbound inquiries', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'supplier-sharing-'))
+  const token = 'supplier-api-test-token-000000000000000000'
+  let harness = await mount(directory, { externalAgentToken: token })
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const post = (path, data) => harness.request(`/supplier/${path}`, { method: 'POST', body: JSON.stringify(data) })
+  const external = (path, data) => externalRequest(harness, `/supplier/v1/${path}`, token, data === undefined ? 'GET' : 'POST', data)
+  const { fileId, fields } = await supplierSetup(harness)
+  fields.supplier.nodes[0].claims = [{ ...fields.supplier.nodes[0].claims[0], qualification: '' }]
+  const id = crypto.randomUUID()
+  await post('draft', { id, expectedRevision: 0, fields })
+  await post('confirm', { id, revision: 1 })
+  await post('verify', { id, revision: 2 })
+  const input = { recordId: id, requirements: [{ attribute: 'material', operator: 'equals', value: 'viscose' }] }
+  assert.equal((await external('match', input)).status, 404)
+  assert.equal((await post('access', { expectedRevision: 0, records: [{ id, revision: 2 }], documents: [] })).status, 200)
+  assert.equal((await external('match', input)).data.candidates[0].status, 'POSSIBLE')
+  assert.equal((await post('access', { expectedRevision: 0, records: [], documents: [] })).status, 409)
+  assert.equal((await post('access', { expectedRevision: 1, records: [{ id, revision: 2 }], documents: [fileId] })).status, 200)
+  assert.equal((await external('match', input)).data.candidates[0].status, 'MATCH')
+  const inquiry = { id: crypto.randomUUID(), recordId: id, recordRevision: 2, nodeIds: ['printing'], type: 'quote', name: 'External buyer', email: 'buyer@example.com', message: 'Quote a sample.' }
+  const result = await external('inquiries', inquiry)
+  assert.deepEqual(result.data, { id: inquiry.id, status: 'submitted', revision: 1 })
+  assert.deepEqual((await external('inquiries', inquiry)).data, result.data)
+  assert.equal((await external('inquiries', { ...inquiry, message: 'Changed' })).status, 409)
+  assert.equal((await external('inquiries', { ...inquiry, id: crypto.randomUUID(), recordRevision: 1 })).status, 404)
+  assert.equal((await external('inquiries', { ...inquiry, id: crypto.randomUUID(), nodeIds: ['fabricated'] })).status, 400)
+  assert.equal((await external('match', { ...input, verified: true })).status, 400)
+  assert.equal((await post('access', { expectedRevision: 2, records: [], documents: [] })).status, 200)
+  assert.equal((await external('match', input)).status, 404)
+  assert.equal((await external(`document?fileId=${fileId}&chunk=1`)).status, 404)
+  await harness.dispose()
+  harness = await mount(directory, { externalAgentToken: token, externalSupplierRecords: [{ id, revision: 2 }], externalDocumentIds: [fileId] })
+  assert.deepEqual((await external('query')).data.records, [])
+  const state = await (await harness.request('/supplier')).json()
+  assert.equal(state.access.revision, 3)
+  assert.equal(state.requests.length, 1)
 })

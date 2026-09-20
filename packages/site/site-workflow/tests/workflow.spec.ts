@@ -39,7 +39,7 @@ describe('site workflow', () => {
     const workflow = new SitePublishWorkflow(f.sites, f.shopify, f.options)
     const first = workflow.run(f.spec, f.revision, f.job)
     try {
-      const revision = await f.sites.createRevision(f.spec, {}, 'user')
+      const revision = await f.sites.createRevision(f.spec, { baseRevisionId: f.revision.id }, 'user')
       const job = await f.sites.queuePublishJob(f.spec, revision.id)
       await expect(workflow.run(f.spec, revision, job)).rejects.toThrow('already running')
     } finally {

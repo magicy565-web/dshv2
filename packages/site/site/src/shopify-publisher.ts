@@ -34,6 +34,7 @@ export function renderShopifyThemeFiles(_site: Site, revision: SiteRevision): Re
 export function createShopifySitePublisher(provider: ShopifyStoreProvider, themeId: string, render: SiteThemeRenderer): SitePublisher {
   if (!/^gid:\/\/shopify\/Theme\//.test(themeId)) throw new Error('invalid Shopify theme id')
   return async (site, revision) => {
+    if (!site.connectionId) throw new Error('Shopify publication requires a connected store')
     const files = render(site, revision)
     await provider.publish({ mode: 'oauth', connectionId: site.connectionId, tenantId: site.tenantId, requiredScopes: ['write_themes'] }, {
       connectionId: site.connectionId,

@@ -1,5 +1,5 @@
 ---
-description: "AI Shopify 站点的结构化版本和发布接口。"
+description: "持久化网站源码项目、版本审阅和发布任务，支持可选 Shopify 销售连接。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,13 @@ kind: "package-reference"
 
 ## Summary
 
-本包负责租户范围内的站点、版本、结构化变更集和发布任务。Agent 只产生 `SiteChangeSet`，由 `validateSiteChangeSet` 校验后再交给 Provider 转换为 Shopify 资源。
+无需销售连接即可创建租户网站、保存源码项目和资源、比较版本并恢复历史内容。`SiteChangeSet` 接受结构化页面或完整项目文件树。仅向 Shopify 发布时，Shopify 适配器才要求已授权的店铺。
+
+## Source projects
+
+项目记录框架（`static` 或 `nextjs`）以及 UTF-8 文本或规范 base64 编码的源文件。版本保留完整文件树；省略项目时继承前一版本。版本比较包含新增、删除和修改的路径。回滚恢复所选版本的完整文件树。存储前拒绝路径穿越、跨平台文件名冲突、文件与目录冲突、凭据文件名和仓库元数据。
+
+`build` 生成绑定明确版本的确定性静态构建产物。它要求 `index.html`，保留二进制资源，并且不在 Host 执行项目代码。Next.js 项目可以存储，但需要独立的隔离框架构建提供方。私有预览使用无法访问编辑器 DOM 或 Cookie 的沙箱，禁止脚本网络请求，并返回 `no-store` 和 `noindex`。预览编译仅解析已保存的项目文件，不读取 Host 文件或安装在 Host 的包。
 
 ## Publication lifecycle
 
@@ -17,7 +23,7 @@ kind: "package-reference"
 
 版本输入和返回记录与存储状态相互独立。回滚创建新版本而不覆盖历史。版本和发布历史按插入顺序倒序排列，同一毫秒创建的记录也遵循此顺序。
 
-局部编辑将当前草稿记录为基础版本。`content` 解析继承的页面、主题和商品顺序；显式空数组清空对应集合。`diff` 比较完整内容中的页面新增、删除、编辑和顺序变化。`preview` 渲染所选存储页面而不发布。回滚存储目标版本的完整内容，并停止继承被替换草稿的内容。这些读取拒绝其他租户或站点所属的版本。
+首个版本之后的每次编辑必须指定当前草稿作为基础版本；缺失或过期的基础版本会导致写入被拒绝。`content` 解析继承的页面、主题、商品顺序和源码文件；显式空数组清空对应集合。`diff` 比较完整内容。`preview` 渲染所选存储页面而不发布。回滚存储目标版本的完整内容，并停止继承被替换草稿的内容。这些读取拒绝其他租户或站点所属的版本。
 
 ## Editor HTTP
 
@@ -36,12 +42,12 @@ kind: "package-reference"
 ## Known Limitations and Deferred Work
 
 - 文件快照保存是显式操作；可选 SQLite 适配器提供自动提交。每个事务保存完整服务快照，适用于每个数据库一个活跃服务，不提供分布式发布。Session 事件和 UI 投影尚未实现。
-- 内存发布回调不提供生产审批流程或 Shopify 部署适配器。仅渲染 HTML、robots 和 sitemap 不会发布 Shopify 主题。
-- 首版校验只支持受控模板字段，不接受任意 Liquid 或 JavaScript。
+- `createShopifySitePublisher` 为 OAuth Shopify 提供方提供受控适配器；调用方必须提供所选主题 ID 和已批准的渲染器。
+- 项目源码接受 JavaScript，且只在访客浏览器执行。Next.js 执行、独立托管、部署设置和域名管理需要额外提供方。结构化页面渲染器仍使用受控模板。
 
 ## Model Experience
 
-本包提供站点编辑工具将使用的类型数据，但当前不注册面向模型的工具。
+本包提供类型化编辑和发布操作，不注册模型可见工具；[企业 Sites 使用方](../../../trade/enterprise/README.zh.md#sites-workspace) 负责工具注册。
 
 #### KV Cache effect
 

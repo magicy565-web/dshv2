@@ -24,7 +24,9 @@ describe('site snapshot persistence', () => {
       const { service, spec } = await fixture()
       const path = join(directory, 'state.json')
       await service.save(path)
-      await service.createRevision(spec, {}, 'user')
+      const currentRevisionId = service.get(spec)?.currentRevisionId
+      if (currentRevisionId === undefined) throw new Error('fixture did not create a current revision')
+      await service.createRevision(spec, { baseRevisionId: currentRevisionId }, 'user')
       await service.save(path)
       expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(service.snapshot())
       const restored = new InMemorySiteService(new Context())

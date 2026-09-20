@@ -51,7 +51,7 @@ describe('site publication lifecycle', () => {
     const first = await service.createRevision(spec, {}, 'user')
     expect((await service.publish(spec, first.id)).status).toBe('succeeded')
     fail = true
-    const next = await service.createRevision(spec, {}, 'user')
+    const next = await service.createRevision(spec, { baseRevisionId: first.id }, 'user')
     const failed = await service.publish(spec, next.id)
     expect(failed.status).toBe('failed')
     expect(failed.error).toContain('provider unavailable')
@@ -66,7 +66,7 @@ describe('site publication lifecycle', () => {
     const run = service.runPublishJob(spec, job.id)
     try {
       expect(service.getPublishJob(spec, job.id)?.status).toBe('running')
-      const second = await service.createRevision(spec, {}, 'user')
+      const second = await service.createRevision(spec, { baseRevisionId: first.id }, 'user')
       const next = await service.queuePublishJob(spec, second.id)
       await expect(service.runPublishJob(spec, next.id)).rejects.toThrow('already running')
       await expect(service.cancelPublishJob(spec, job.id)).rejects.toThrow('running')
@@ -95,7 +95,7 @@ describe('site publication lifecycle', () => {
     expect(service.getRevision(spec, revision.id)?.changeSet.pages?.[0]?.title).toBe('Original')
     const restored = setup().service
     restored.restore(service.snapshot())
-    const second = await service.createRevision(spec, {}, 'user')
+    const second = await service.createRevision(spec, { baseRevisionId: revision.id }, 'user')
     expect(service.listRevisions(spec).map(item => item.id)).toEqual([second.id, revision.id])
     expect(restored.getRevision(spec, revision.id)?.changeSet.pages?.[0]?.title).toBe('Original')
   })

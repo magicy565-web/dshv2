@@ -5,6 +5,7 @@ import type {
 } from './types.ts'
 import { compareSiteContent } from './revisions.ts'
 import { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
+import { buildStaticSite, type SiteArtifact } from './project.ts'
 import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
 
 export * from './types.ts'
@@ -12,6 +13,8 @@ export { assertValidSiteChangeSet, validateSiteChangeSet } from './validation.ts
 export { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
 export { createShopifySitePublisher, renderShopifyThemeFiles } from './shopify-publisher.ts'
 export type { SiteThemeRenderer } from './shopify-publisher.ts'
+export { buildStaticSite, sitePreviewResponse, validateSiteProject } from './project.ts'
+export type { SiteArtifact, SiteArtifactFile } from './project.ts'
 
 export interface SiteResolveRequest { readonly tenantId: TenantId; readonly siteId: SiteId }
 export interface SiteSpec { readonly tenantId: TenantId; readonly siteId: SiteId }
@@ -29,8 +32,13 @@ declare module '@deepseek-ai/cordis' {
 /** Site editing service. It accepts typed change sets and never accepts raw Shopify API requests. */
 export abstract class SiteService extends Service {
   constructor(ctx: Context) { super(ctx, 'site') }
-  /** Create a site for an authorized tenant and store connection. */
-  abstract createSite(tenantId: TenantId, name: string, connectionId: StoreConnectionId): Site
+  /** Create a site for an authorized tenant, optionally connected to commerce.
+   * @param tenantId - Identity supplied by the authenticated host.
+   * @param name - Site display name.
+   * @param connectionId - Store connection already authorized by the host, if any.
+   * @returns The stored site with no draft or production revision.
+   */
+  abstract createSite(tenantId: TenantId, name: string, connectionId?: StoreConnectionId): Site
   /** List sites owned by the authorized tenant. */
   abstract list(tenantId: TenantId): readonly Site[]
   /** Resolve tenant and site identity into an explicit operation spec. */
@@ -41,7 +49,13 @@ export abstract class SiteService extends Service {
   abstract getRevision(spec: SiteSpec, revisionId?: SiteRevisionId): SiteRevision | undefined
   /** List revisions newest first for the tenant-owned site. */
   abstract listRevisions(spec: SiteSpec): readonly SiteRevision[]
-  /** Persist a validated structured change set as a new revision. */
+  /** Persist a validated change set only against the draft observed by its editor.
+   * @param spec - Authorized tenant and site identity.
+   * @param changeSet - Edits whose baseRevisionId equals the current draft, or is absent for the first draft.
+   * @param source - Origin recorded in version history.
+   * @returns The committed revision; older source versions remain unchanged.
+   * @throws When the observed draft is stale, including a missing base on a nonempty site.
+   */
   abstract createRevision(spec: SiteSpec, changeSet: SiteChangeSet, source: SiteRevision['source']): Promise<SiteRevision>
   /** Resolve partial edits through their recorded bases within one tenant-owned site.
    * @param spec - Resolved tenant and site.
@@ -76,6 +90,17 @@ export abstract class SiteService extends Service {
    */
   diff(spec: SiteSpec, revisionId: SiteRevisionId, baseRevisionId?: SiteRevisionId): SiteRevisionDiff {
     return compareSiteContent(baseRevisionId === undefined ? undefined : this.content(spec, baseRevisionId), this.content(spec, revisionId))
+  }
+  /** Build an immutable static artifact from the selected authorized project revision.
+   * @param spec - Authenticated tenant and site identity.
+   * @param revisionId - Exact saved source version to build.
+   * @returns Static files and their content digest; does not publish or execute project code.
+   * @throws When the revision has no project or requires an isolated framework compiler.
+   */
+  build(spec: SiteSpec, revisionId: SiteRevisionId): SiteArtifact {
+    const project = this.content(spec, revisionId).project
+    if (!project) throw new Error('site revision has no source project')
+    return buildStaticSite(revisionId, project)
   }
   /** Render a page from resolved draft content; this does not publish it.
    * @param spec - Resolved tenant and site.

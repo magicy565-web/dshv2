@@ -13,7 +13,8 @@ export interface Site {
   readonly id: SiteId
   readonly tenantId: TenantId
   readonly name: string
-  readonly connectionId: StoreConnectionId
+  /** Optional commerce connection; a site can exist and publish without a store. */
+  readonly connectionId?: StoreConnectionId
   readonly currentRevisionId?: SiteRevisionId
   /** Last revision whose publisher completed successfully. */
   readonly publishedRevisionId?: SiteRevisionId
@@ -42,6 +43,21 @@ export interface SiteChangeSet {
   readonly pages?: readonly SitePage[]
   readonly theme?: ThemeConfig
   readonly productOrder?: readonly ShopifyProductId[]
+  /** Complete project tree; omitted projects inherit from the preceding revision. */
+  readonly project?: SiteProject
+}
+
+/** One source or asset file. Base64 preserves binary assets across JSON storage. */
+export interface SiteProjectFile {
+  readonly path: string
+  readonly content: string
+  readonly encoding: 'utf8' | 'base64'
+}
+
+/** Source files owned by a site revision, independent of commerce and chat sessions. */
+export interface SiteProject {
+  readonly framework: 'static' | 'nextjs'
+  readonly files: readonly SiteProjectFile[]
 }
 
 /** Complete editable content of one resolved revision. */
@@ -49,6 +65,7 @@ export interface SiteContent {
   readonly pages: readonly SitePage[]
   readonly theme?: ThemeConfig
   readonly productOrder: readonly ShopifyProductId[]
+  readonly project?: SiteProject
 }
 
 /** Page changes and other editable fields shown before publication. */
@@ -59,6 +76,13 @@ export interface SiteRevisionDiff {
   readonly pageOrderChanged: boolean
   readonly themeChanged: boolean
   readonly productOrderChanged: boolean
+  /** Source and asset paths added, removed, or edited in the selected revision. */
+  readonly files: {
+    readonly added: readonly string[]
+    readonly removed: readonly string[]
+    readonly changed: readonly string[]
+    readonly frameworkChanged: boolean
+  }
 }
 
 export interface SiteRevision {

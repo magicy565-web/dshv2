@@ -1,6 +1,7 @@
 /** Private GEO drafts; confirmation is a human review, not publication or certification. */
 import { z } from 'zod'
 import { geoProduct } from './geo-product.ts'
+import { supplierGraph } from './supplier.ts'
 
 /** Deployment-local record identifier. */
 export const geoId = z.string().uuid().brand<'GeoId'>()
@@ -12,6 +13,7 @@ export const geoFields = z.object({
   sections: z.array(z.object({ label: z.string().trim().min(1).max(160), content: z.string().trim().max(3000), source: z.string().trim().max(1000) }).strict()).max(40),
   questions: z.string().trim().max(2000),
   product: geoProduct.optional(),
+  supplier: supplierGraph.optional(),
 }).strict()
 /** Persisted draft and optimistic revision receipt. */
 export const geoRecord = geoFields.extend({

@@ -20,6 +20,18 @@ function fixture() {
 }
 
 describe('site editor HTTP', () => {
+  it('creates and restores a site without commerce while still authorizing supplied connections', async () => {
+    const { sites, request } = fixture()
+    const response = await request('/sites', { name: 'Independent studio' })
+    expect(response.status).toBe(201)
+    const site = await response.json()
+    expect(site.connectionId).toBeUndefined()
+    const restored = new InMemorySiteService(new Context())
+    restored.restore(sites.snapshot())
+    expect(restored.list(TenantId('owner'))).toEqual([site])
+    await expect(request('/sites', { name: 'Other', connectionId: 'foreign' })).rejects.toThrow('connection denied')
+    expect((await request('/sites', { name: 'Other', connectionId: null })).status).toBe(400)
+  })
   it('resolves routes and methods before parsing action parameters or bodies', async () => {
     const { request, handler } = fixture()
     const site = await (await request('/sites', { name: 'Store', connectionId: 'store' })).json()

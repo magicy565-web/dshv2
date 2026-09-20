@@ -1,5 +1,7 @@
 /** Enterprise panel contributed through native sidebar and main slots. */
 import { useEffect, useRef, useState } from 'react'
+import { ComputersPanel } from './client-computers.tsx'
+import { computerZh, computerEn } from './computer-locales.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -17,6 +19,9 @@ import type { Asset, Profile } from './schema.ts'
 import { style } from './style.ts'
 import { TaskPanel } from './client-tasks.tsx'
 import { OpportunityPanel } from './client-opportunities.tsx'
+import { SitesPanel, siteStyle } from './client-sites.tsx'
+import { siteZh, siteEn } from './site-locales.ts'
+import { SupplierPanel, supplierStyle } from './client-supplier.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { enterprise: EnterpriseKey }
@@ -106,8 +111,8 @@ function Panel({ t, useEnterprise, load, save, upload, rename, remove, task, opp
     {!data ? <div className="ent-empty">{state.busy ? t('loading') : <Button onClick={() => { void load() }}>{t('retry')}</Button>}</div>
       : !profile ? <div className="ent-empty">{generationError && <p role="alert">{t('generationFailed')}</p>}<Button variant="primary" disabled={generating} onClick={() => { void runGeneration(`/product-geo ${t('geoPrompt')}`, true) }}>{generating ? t('startingGeneration') : data.onboarding.sessionId || data.geo.length ? t('geoContinue') : t('geoStart')}</Button></div>
       : <>
-        <nav className="ent-tabs" role="tablist" aria-label={t('title')}>{(['overview', 'identity', 'offerings', 'fit', 'capabilities', 'constraints', 'evidence', 'profile', 'assets', 'opportunities', 'tasks', 'ai'] as const).map(value => <button key={value} role="tab" className="ent-tab" aria-selected={tab === value} onClick={() => { setTab(value); setEditing(false); setSaved(false) }}>{t(value)}</button>)}</nav>
-        {tab === 'overview' && <div role="tabpanel"><section className="ent-section"><h2>{t('overview')}</h2><p>{profile.description || t('notSet')}</p><p>{profile.business || t('notSet')}</p><p className="ent-status">{data.submittedAt ? t('submitted') : t('notSubmitted')}</p></section></div>}
+        <nav className="ent-tabs" role="tablist" aria-label={t('title')}>{(['overview', 'profile', 'assets', 'opportunities', 'tasks', 'ai'] as const).map(value => <button key={value} role="tab" className="ent-tab" aria-selected={tab === value} onClick={() => { setTab(value); setEditing(false); setSaved(false) }}>{t(value === 'overview' ? 'supplierTitle' : value)}</button>)}</nav>
+        {tab === 'overview' && <SupplierPanel profile={profile} t={t} generate={generate} />}
         {tab === 'tasks' && <TaskPanel tasks={data.tasks} busy={state.busy} t={t} command={task} />}
         {tab === 'opportunities' && <OpportunityPanel opportunities={data.opportunities} busy={state.busy} t={t} command={opportunity} research={() => { void runGeneration(`/overseas-buyer-research ${t('opportunityResearchPrompt', { name: profile.name })}`, true) }} />}
         {tab === 'profile' ? editing ? <ProfileForm initial={profile} t={t} busy={state.busy} onSave={saveProfile} onCancel={() => setEditing(false)} /> : <div role="tabpanel">
@@ -122,7 +127,7 @@ function Panel({ t, useEnterprise, load, save, upload, rename, remove, task, opp
             <button className="ent-thumb" title={t('preview')} aria-label={`${t('preview')} ${asset.name}`} onClick={() => setPreview(asset)}>{asset.category === 'image' ? <img loading="lazy" src={fileUrl(asset)} alt={asset.name} /> : asset.category === 'video' ? <video preload="metadata" src={fileUrl(asset)} muted playsInline /> : <IconFolderOpenOutline16 size={40} />}</button>
             <div className="ent-file-info"><p className="ent-file-name" title={asset.name}>{asset.name}</p><p className="ent-muted">{t(asset.category)} · {fileSizeText(asset.size)}</p><p className={`ent-knowledge ent-knowledge-${asset.knowledgeStatus}`}>{knowledgeLabel(asset)}</p><div className="ent-actions">{download(asset)}<Button size="sm" title={t('rename')} aria-label={t('rename')} disabled={state.busy} onClick={() => { setRenaming(asset); setNewName(asset.name) }}><IconEditOutline16 /></Button><Button size="sm" title={t('delete')} aria-label={t('delete')} disabled={state.busy} onClick={() => setDeleting(asset)}><IconTrashOutline16 /></Button></div></div>
           </article>)}</div>}
-        </div> : tab === 'tasks' || tab === 'opportunities' ? null : <div role="tabpanel">
+        </div> : tab === 'tasks' || tab === 'opportunities' || tab === 'overview' ? null : <div role="tabpanel">
           <section className="ent-section"><h2>{t('aiTitle')}</h2><p className="ent-muted">{t('aiDescription')}</p><p className="ent-status">{t('knowledgeCount', { ready: knowledgeReady, total: assets.length })}</p></section>
           {generationError && <p role="alert" className="ent-notice">{t('generationFailed')}</p>}
           <div className="ent-ai-grid">
@@ -189,13 +194,21 @@ export function apply(ctx: Context): void {
   }
   ctx.effect(() => () => model.dispose(), 'enterprise: browser requests')
   ctx.effect(() => ctx.locale.register('enterprise', { zh, en }), 'enterprise: locale')
+  ctx.effect(() => ctx.locale.register('computers', { zh: computerZh, en: computerEn }), 'computers: locale')
+  ctx.effect(() => ctx.locale.register('sites', { zh: siteZh, en: siteEn }), 'sites: locale')
   ctx.effect(() => {
     const sheet = document.createElement('style')
-    sheet.textContent = style
+    sheet.textContent = style + siteStyle + supplierStyle
     document.head.append(sheet)
     return () => sheet.remove()
   }, 'enterprise: styles')
   const t = ctx.locale.bind('enterprise')
+  const computerT = ctx.locale.bind('computers')
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'computers', order: 12, label: () => computerT('title') }, IconFolderOpenOutline16))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'computers', locale: 'computers' }, ComputersPanel))
+  const siteT = ctx.locale.bind('sites')
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'sites', order: 11, label: () => siteT('title') }, IconFolderOpenOutline16))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'sites', locale: 'sites', inject: () => ({ generate }) }, SitesPanel))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'enterprise', order: 10, label: () => t('title') }, IconFolderOpenOutline16))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'enterprise', locale: 'enterprise', inject: () => ({
     load: model.load, save: model.save, upload: model.upload, rename: model.rename, remove: model.remove, task: model.task, opportunity: model.opportunity, generate, hooks: { enterprise: model.source },

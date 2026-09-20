@@ -41,6 +41,7 @@ export class SitePublishWorkflow {
     }
     const key = `${job.id}:${revision.id}`
     const result = await this.sites.runPublishJob(spec, job.id, async (site, storedRevision) => {
+      if (!site.connectionId) throw new Error('Shopify publication requires a connected store')
       const connection = this.shopify.getConnection(site.connectionId)
       if (!connection || connection.tenantId !== spec.tenantId) throw new Error('store connection is not available for this tenant')
       const storeSpec = this.shopify.resolve({ tenantId: spec.tenantId, connectionId: site.connectionId, mode: connection.mode })

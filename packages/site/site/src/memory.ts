@@ -57,7 +57,7 @@ export class InMemorySiteService extends SiteService {
   async createRevision(spec: SiteSpec, changeSet: SiteChangeSet, source: SiteRevision['source']): Promise<SiteRevision> {
     const site = this.get(spec); if (!site) throw new Error('site is not available for this tenant')
     assertValidSiteChangeSet(changeSet)
-    if (changeSet.baseRevisionId !== undefined && changeSet.baseRevisionId !== site.currentRevisionId) throw new Error('site revision conflict')
+    if (changeSet.baseRevisionId !== site.currentRevisionId) throw new Error('site revision conflict')
     const recorded = { ...changeSet, ...(site.currentRevisionId === undefined ? {} : { baseRevisionId: site.currentRevisionId }) }
     const revision: SiteRevision = { id: brandString<SiteRevisionId>(randomUUID()), siteId: site.id, createdAt: new Date().toISOString(), source, changeSet: structuredClone(recorded) }
     this.commit(() => { this.revisions.set(revision.id, revision); this.sites.set(site.id, { ...site, currentRevisionId: revision.id }) }); return structuredClone(revision)
@@ -118,7 +118,11 @@ export class InMemorySiteService extends SiteService {
     if (job.status !== 'queued' && job.status !== 'cancelled') throw new Error(`cannot cancel job with status '${job.status}'`)
     const cancelled = { ...job, status: 'cancelled' as const }; this.commit(() => { this.jobs.set(job.id, cancelled) }); return structuredClone(cancelled)
   }
-  createSite(tenantId: TenantId, name: string, connectionId: StoreConnectionId): Site { const site: Site = { id: brandString<SiteId>(randomUUID()), tenantId, name, connectionId }; this.commit(() => { this.sites.set(site.id, site) }); return structuredClone(site) }
+  createSite(tenantId: TenantId, name: string, connectionId?: StoreConnectionId): Site {
+    const site: Site = { id: brandString<SiteId>(randomUUID()), tenantId, name, ...(connectionId === undefined ? {} : { connectionId }) }
+    this.commit(() => { this.sites.set(site.id, site) })
+    return structuredClone(site)
+  }
   list(tenantId: TenantId): readonly Site[] { return structuredClone([...this.sites.values()].filter(site => site.tenantId === tenantId)) }
   /** Export all tenant-owned state for durable storage. */
   snapshot(): SiteSnapshot {

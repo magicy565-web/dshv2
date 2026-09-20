@@ -16,7 +16,7 @@ Built-plugin tests verify native skill loading, draft persistence, rejected and 
 
 **Continue onboarding** reopens the persisted conversation after a browser reload; an unavailable conversation is replaced and the skill reads saved progress. Confirmed records can receive a separate revision draft without losing their original content. Completion requires the user's in-chat confirmation of the exact records included in this task, not merely one saved product. Any draft change invalidates completion. Chat documents are read through session-owned attachment references and returned with chunk citations. Onboarding conversations enforce a knowledge-tool allowlist; shell, filesystem, and direct profile-write tools cannot bypass review.
 
-The first visit creates one user-named company or studio. Its profile contains a logo, description, products/services, website and contact details. The asset tab supports multiple-file upload, category filtering, name search, image/video preview, download, rename and confirmed deletion. Logo selection uses an uploaded image. Removing that image also clears the profile logo. Files are not sent to a model or added to a knowledge index.
+The first visit creates one user-named company or studio. Its profile contains a logo, description, products/services, website and contact details. The asset tab supports multiple-file upload, category filtering, name search, image/video preview, download, rename and confirmed deletion. Logo selection uses an uploaded image. Removing that image also clears the profile logo. Supported documents enter a local text index; only requested passages enter model context through tools.
 
 Supported uploads are JPEG, PNG, WebP, GIF, AVIF, MP4, WebM, QuickTime, PDF, DOCX, XLSX, PPTX, ZIP and UTF-8 TXT/CSV/Markdown. Binary formats are detected from content; a supplied MIME type cannot enable an unsupported format. Documents download as attachments. Video playback depends on the browser's codec support. Uploads run one at a time; a batch keeps earlier successful files if a later upload fails.
 
@@ -41,6 +41,38 @@ SQLite `enterprise_opportunities` stores the complete record across conversation
 
 ## Storage and configuration
 
+### Supplier Commerce Profile and document queries
+
+In the existing Product GEO conversation, ask the Agent to build a procurement profile from enterprise documents. Company drafts accept a structured `supplier` graph with offerings, solutions, capabilities, value propositions, cases, partner programs and commercial policies. Offering nodes can reference confirmed product records; the graph does not replace the product catalog. Claims preserve qualifications, evidence references, uncertainty and expiry. Evidence distinguishes documents, user statements, websites and social posts, with explicit supported claims and limitations. Agent input cannot assign `VERIFIED` status.
+
+`enterprise_geo_draft` validates graph references and cited document chunks. `enterprise_geo_review` presents the complete graph for human confirmation. `enterprise_supplier_query` returns current confirmed graphs with optional `query`, `kind`, `recordId`, `nodeId` and `offset`; `maxKnowledgeResults` bounds each page. A replacement draft leaves its predecessor queryable until confirmation. `enterprise_search` returns document `fileId` and `chunk`; `enterprise_document_read` returns that exact passage, citation, content hash and upload time. Deleted evidence is marked missing. Tool output follows the existing Session logging path.
+
+Enterprise workspace opens the procurement profile. **Edit procurement profile** maintains every object, claim, evidence item and relationship; **Build with Agent** extracts drafts through the existing conversation. Offering levels cover category, family, product and variant. Buyer types, markets, business models and confidentiality remain explicit. Evidence cards open original passages or uploaded media and retain category, confidence, excerpts and publication dates. Resolve open questions, save a draft, then review the complete revision before confirmation. Queries use literal keywords; the calling Agent interprets natural-language procurement requests. Scanned documents require extractable text; OCR is disabled.
+
+**Check sources** and `enterprise_supplier_verify` record a separate human source-check receipt for the exact confirmed revision, not third-party certification. Inferred, conflicted, expired or missing sources block attestation. **Procurement match** and `enterprise_supplier_match` compare required and optional attributes independently for each candidate using equals, contains, minimum and maximum operators. MATCH requires current unconditional evidence for every required attribute and a source-check receipt; NO_MATCH identifies an established contradiction; POSSIBLE retains missing, qualified, expired or incomparable facts. Numeric comparisons require compatible explicit units. Social observations and media alone never establish exact specifications.
+
+**Procurement requests** records quote, sample, specification, partnership and purchase-consultation requests. Workspace forms and `enterprise_procurement_prepare` save drafts; a human submits and follows them through submitted, in-review and closed states. External buyer API submissions enter the inbox directly. Requests bind to exact company revisions and selected objects, reject stale edits, persist across restarts and reuse their UUID for identical retries. These actions do not send email, create a paid order or make payment. SQLite owns disclosure revisions, source-check receipts, requests and audit records.
+
+### External procurement Agent API
+
+External reads use a separate Bearer credential and explicit deployment grants. With no `externalAgentToken`, no `/supplier/v1/` routes are registered. The deployment overlay reads `DSH_SUPPLIER_AGENT_TOKEN` (at least 32 characters), `DSH_SUPPLIER_RECORDS` (a JSON array of exact `{ "id": "<company-record-uuid>", "revision": 2 }` grants) and `DSH_SUPPLIER_DOCUMENTS` (a JSON array of uploaded file UUIDs). Obtain confirmed record ids and revisions from `enterprise_geo_status`, and file ids from `enterprise_search`. Setting a grant without a token fails configuration validation. Configure secrets outside committed files, then restart the `trade` profile. Remote deployment supplies HTTPS and network access controls.
+
+**External Agent access** selects confirmed revisions and files; saving replaces grants immediately with an optimistic revision check. Deployment grants apply only until workspace grants are first saved. All endpoints require `Authorization: Bearer <token>`, independently of browser login. Read endpoints use GET; action endpoints use JSON POST bounded by `maxSupplierBodyBytes` (default 1 MiB). Responses use `Cache-Control: no-store`; routes are excluded from indexing.
+
+| Route | Result |
+| --- | --- |
+| `/supplier/v1/manifest` | Version, authentication, read endpoints and action JSON input schemas. |
+| `/supplier/v1/query?query=viscose&kind=capability` | Shared confirmed graph objects with claims and evidence; filters are optional. Use `recordId` and `offset` for a selected record's next page, or `nodeId` to follow a relationship. |
+| `/supplier/v1/search?query=viscose` | Matching passages from explicitly shared documents only. |
+| `/supplier/v1/document?fileId=<uuid>&chunk=1` | One shared passage with its citation and content hash. |
+| `/supplier/v1/asset?id=<uuid>` | Shared original file, including byte ranges for media. |
+| POST `/supplier/v1/match` | Per-object comparison against structured requirements. |
+| POST `/supplier/v1/inquiries` | Idempotent inbox submission; returns only request id, revision and status. |
+
+A file grant exposes the original bytes and all indexed passages. Unshared files cannot be searched or read; their evidence references return only an evidence id and `not_shared`, and cannot support an external MATCH. Company grants expose the complete reviewed graph and sections, including case and commercial claims. A confirmed replacement invalidates its predecessor's grant and requires a fresh source check and grant. Removing a grant or deleting a file takes effect immediately; key rotation requires restart. The key serves one local enterprise and one shared access scope, without per-buyer identities, OAuth, MCP transport or an anonymous supplier directory.
+
+Built-plugin and matching tests cover revision review, source deletion, uncertainty, disclosure revocation, idempotent requests and inbox transitions. `test/supplier-browser.test.mjs` boots the shipped `dsh` Web profile and exercises editing, review, document reading, matching, requests and live sharing on desktop and mobile; evidence is saved under `.trade-runtime/supplier-evidence/`. The keyless [supplier document snapshot](../../snapshots/session/supplier-document-missing/snapshot.yml) replays a missing-source tool result and the Agent response through the headless profile, including prompt and tool-schema oracles. It uses authored model output; a live-model end-to-end conversation is not part of this verification.
+
 ### Structured GEO products
 
 Product drafts accept an optional structured `product` with identity, direct answer, intended customers, typed claims, evidence, media, variants, solution links and offers. Claims own fact values; offers reference commercial claims and supply currency, ordering unit, region and expiry. Fabric GSM aliases normalize to `g/m²`, and width measurements normalize to centimeters. Unknown commercial values remain unknown. Free-text records remain readable but do not satisfy structured-product readiness.
@@ -61,7 +93,7 @@ User-owned Shopify stores use `/api/enterprise/shopify/oauth/start` and `/api/en
 
 `enterprise_site_publish` and `enterprise_site_unpublish` control the Shopify-GEO public site independently from commerce synchronization. Site publication assigns a unique slug, content fingerprint, version, public URL and timestamps. Only products with `siteStatus: published` enter the public route and sitemap; a pending Shopify commerce connection does not block the site projection.
 
-This is one enterprise per local deployment, with access controlled by the existing browser login. It does not implement multi-account membership, tenant isolation, public sharing, file conversion or knowledge ingestion. The schema and Host own record consistency; the plugin has no separate invariant installer.
+This is one enterprise per local deployment, with workspace access controlled by the existing browser login and external procurement reads controlled by the separate grants above. It does not implement multi-account membership, tenant isolation, anonymous document sharing or file conversion. The schema and Host own record consistency; the plugin has no separate invariant installer.
 
 ## Canonical Company Entity
 
@@ -75,6 +107,24 @@ Machine-readable endpoints:
 - `/api/enterprise/agent`: public fields plus capabilities and constraints available to the Agent.
 
 Both endpoints project the same SQLite enterprise record; they do not maintain a second JSON or webpage source. They do not replace the authenticated workspace API. Public hosting still configures cache policy, canonical URLs, robots and JSON-LD at the Web route.
+
+## Sites workspace
+
+The Sites sidebar opens the persisted website list without requiring a company profile or Shopify store. It offers conversation creation and editing, desktop/mobile private previews, a source-file editor, source export and historical draft restoration. `site_create`, `site_get`, `site_update_draft`, `site_preview` and `site_rollback` use the authenticated deployment identity; file edits reject an outdated observed revision. The Host stores source projects in `sites.sqlite` independently of the originating conversation. Source files must contain only approved public content.
+
+Static previews bundle saved local scripts, module imports, styles and images inside a sandbox without editor DOM access. They do not execute project code in the enterprise Host. Saving source or opening a local preview does not publish a website.
+
+Optional Vercel hosting creates a protected project per site. Set `DSH_SITES_VERCEL_TOKEN` and `DSH_SITES_VERCEL_TEAM_ID` outside committed files, then restart the trade profile. The `siteHosting` configuration controls request timeouts, response and upload byte limits, and recovery pagination. Configuration requires both credentials; they stay in the Host and are never included in source uploads or browser responses. The provider requires Vercel Authentication for deployment URLs and disables automatic production domain assignment before uploading source. Preview visitors use their Vercel team account.
+
+The Sites panel stages the selected revision, displays build status and opens its protected cloud preview. Static HTML is compiled from virtual files and uploaded with browser assets under a static output directory; generated package scripts do not run. Next.js source builds on Vercel, and generated `vercel.json` or `.vercel/` settings are refused. After reviewing the cloud build, a human confirms its exact revision and source digest before requesting promotion. The provider promotes or rolls back that existing production build without rebuilding the current draft. Cloud acceptance remains pending until a status refresh verifies production routing. `site-hosting.sqlite` preserves deployments and pending operations separately from source revisions. Lost submission responses are reconciled by saved request identity and digest; an unconfirmed project creation requires inspection at Vercel before retrying.
+
+Cloud builds, promotion, recovery and request rejection have local provider-wire tests. Real Vercel publication still requires live account verification. Custom domains, unpublishing, workspace audience and collaborator management, application secrets and durable application data are not yet exposed by this deployment. The existing Shopify-GEO publication remains a separate product projection.
+
+`pnpm exec vitest run --config trade/enterprise/vitest.sites.config.ts` checks hosting persistence and the provider protocol. `node --test trade/enterprise/test/sites-browser.test.mjs` starts the built `trade` profile with an isolated home and exercises source previews, edits, restoration and exact-version publication review with simulated cloud responses. It writes desktop/mobile evidence under `.trade-runtime/sites-evidence/`. Model-driven creation and production deployment require additional recorded-session and live-provider verification.
+
+## Enterprise computers
+
+The **Enterprise computers** sidebar binds existing Grokbot workstations to scoped HTTP credentials, explicit job disclosure, enterprise assets and human acceptance. See the [computer reference](computers.md) for setup, connector requests, cancellation and provider limitations.
 
 ## Development verification
 

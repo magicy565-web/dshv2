@@ -2,15 +2,59 @@
   "name": "@deepseek-ai/dsh-site",
   "description": "Structured site editing and publishing contracts for AI-built Shopify sites",
   "version": "0.1.5-rc.2",
-  "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/deepseek-ai/deepseek-harness.git", "directory": "packages/site/site" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/site/site"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
-  "exports": { ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" }, "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" }, "./memory": { "types": "./lib/types/memory.d.ts", "default": "./lib/types/memory.js" }, "./sqlite": { "types": "./lib/types/sqlite.d.ts", "default": "./lib/types/sqlite.js" }, "./persistent": { "types": "./lib/types/persistent.d.ts", "default": "./lib/types/persistent.js" }, "./src/*": "./src/*", "./package.json": "./package.json" },
-  "files": ["lib/index.js", "lib/types/**/*.js", "lib/types/**/*.d.ts"],
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
+    "./memory": {
+      "types": "./lib/types/memory.d.ts",
+      "default": "./lib/types/memory.js"
+    },
+    "./sqlite": {
+      "types": "./lib/types/sqlite.d.ts",
+      "default": "./lib/types/sqlite.js"
+    },
+    "./persistent": {
+      "types": "./lib/types/persistent.d.ts",
+      "default": "./lib/types/persistent.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts"
+  ],
   "license": "MIT",
-  "peerDependencies": { "@deepseek-ai/cordis": "workspace:^" },
-  "dependencies": { "@deepseek-ai/dsh-brand": "workspace:^", "@deepseek-ai/dsh-shopify": "workspace:^" },
-  "devDependencies": { "@deepseek-ai/cordis": "workspace:^", "@deepseek-ai/dsh-brand": "workspace:^", "@deepseek-ai/dsh-shopify": "workspace:^" }
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-shopify": "workspace:^",
+    "esbuild": "0.28.1",
+    "parse5": "8.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-shopify": "workspace:^"
+  }
 }

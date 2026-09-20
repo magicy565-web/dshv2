@@ -15,7 +15,7 @@ describe('public site projection', () => {
     const files = service.publicFiles(spec, 'https://store.test')
     expect(files['index.html']).toContain('Published')
     expect(files['sitemap.xml']).toContain('https://store.test/')
-    const draft = await service.createRevision(spec, { pages: [{ id: 'home', kind: 'home', path: '/', title: 'Draft' }] }, 'user')
+    const draft = await service.createRevision(spec, { baseRevisionId: first.id, pages: [{ id: 'home', kind: 'home', path: '/', title: 'Draft' }] }, 'user')
     expect(service.publicFiles(spec, 'https://store.test')['index.html']).toContain('Published')
     expect(service.preview(spec, draft.id, 'home', 'https://store.test')).toContain('Draft')
   })

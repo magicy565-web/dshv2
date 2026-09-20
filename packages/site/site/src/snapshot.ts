@@ -20,6 +20,11 @@ function strings(value: unknown): boolean {
 
 function changeSet(value: unknown): boolean {
   if (!object(value) || !optionalText(value.baseRevisionId)) return false
+  if (value.project !== undefined) {
+    const project = value.project
+    if (!object(project) || !['static', 'nextjs'].includes(String(project.framework)) || !Array.isArray(project.files)) return false
+    if (!project.files.every(file => object(file) && text(file.path) && typeof file.content === 'string' && ['utf8', 'base64'].includes(String(file.encoding)))) return false
+  }
   if (value.productOrder !== undefined && !strings(value.productOrder)) return false
   if (value.pages !== undefined) {
     if (!Array.isArray(value.pages)) return false
@@ -63,7 +68,7 @@ export function parseSiteSnapshot(value: unknown): SiteSnapshot {
   if (!object(value) || !Array.isArray(value.sites) || !Array.isArray(value.revisions) || !Array.isArray(value.jobs)) throw new Error('invalid site snapshot')
   const siteIds = new Set<string>()
   for (const site of value.sites) {
-    if (!object(site) || !text(site.id) || !text(site.tenantId) || !text(site.connectionId) || !text(site.name)
+    if (!object(site) || !text(site.id) || !text(site.tenantId) || !optionalText(site.connectionId) || !text(site.name)
       || !optionalText(site.currentRevisionId) || !optionalText(site.publishedRevisionId)) throw new Error('invalid site snapshot: site')
     if (siteIds.has(site.id)) throw new Error('invalid site snapshot: duplicate site')
     siteIds.add(site.id)

@@ -1,8 +1,10 @@
 import type { SiteChangeSet } from './types.ts'
+import { validateSiteProject } from './project.ts'
 
 /** Validate the model-produced change set before it reaches a provider. */
 export function validateSiteChangeSet(changeSet: SiteChangeSet): readonly string[] {
   const errors: string[] = []
+  if (changeSet.project !== undefined) errors.push(...validateSiteProject(changeSet.project))
   if (changeSet.pages !== undefined) {
     const ids = new Set<string>()
     const paths = new Set<string>()
