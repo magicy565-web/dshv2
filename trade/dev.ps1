@@ -14,6 +14,7 @@ $originalPath = $env:PATH
 $originalGitExecPath = $env:GIT_EXEC_PATH
 $originalDshHome = $env:DSH_HOME
 $originalClientCommitHash = $env:DSH_CLIENT_COMMIT_HASH
+$originalCommerceLink = $env:DSH_COMMERCE_LINK_SECRET_JSON
 
 try {
     foreach ($installed in @('C:\Program Files\nodejs', 'C:\Program Files\Git\cmd')) {
@@ -59,6 +60,10 @@ try {
             throw 'Build artifacts are missing. Run trade\dev.ps1 -Action Install, then -Action Build.'
         }
         $env:DSH_HOME = Join-Path $projectRoot '.trade-runtime'
+        $commerceLink = Join-Path $env:DSH_HOME 'commerce-link.json'
+        if ([string]::IsNullOrWhiteSpace($env:DSH_COMMERCE_LINK_SECRET_JSON) -and (Test-Path -LiteralPath $commerceLink)) {
+            $env:DSH_COMMERCE_LINK_SECRET_JSON = Get-Content -LiteralPath $commerceLink -Raw
+        }
         $workspace = Join-Path $projectRoot '.trade-workspace'
         New-Item -ItemType Directory -Force -Path $workspace | Out-Null
         $cliArgs = @('--profile', 'trade')
@@ -79,4 +84,5 @@ finally {
     $env:GIT_EXEC_PATH = $originalGitExecPath
     $env:DSH_HOME = $originalDshHome
     $env:DSH_CLIENT_COMMIT_HASH = $originalClientCommitHash
+    $env:DSH_COMMERCE_LINK_SECRET_JSON = $originalCommerceLink
 }

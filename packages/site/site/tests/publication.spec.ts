@@ -59,7 +59,7 @@ describe('site publication lifecycle', () => {
   })
 
   it('holds a site-wide lock and preserves edits made while publication is pending', async () => {
-    const pending = Promise.withResolvers<void>()
+    const pending = Promise.withResolvers<undefined>()
     const { service, spec } = setup(() => pending.promise)
     const first = await service.createRevision(spec, {}, 'user')
     const job = await service.queuePublishJob(spec, first.id)
@@ -70,16 +70,18 @@ describe('site publication lifecycle', () => {
       const next = await service.queuePublishJob(spec, second.id)
       await expect(service.runPublishJob(spec, next.id)).rejects.toThrow('already running')
       await expect(service.cancelPublishJob(spec, job.id)).rejects.toThrow('running')
-      expect(() => service.restore(service.snapshot())).toThrow('during publication')
+      expect(() =>{  service.restore(service.snapshot()) }).toThrow('during publication')
       const restored = setup().service
       restored.restore(service.snapshot())
-      expect(restored.getPublishJob(spec, job.id)).toMatchObject({ status: 'failed', error: expect.stringContaining('interrupted') })
+      const interrupted = restored.getPublishJob(spec, job.id)
+      expect(interrupted).toMatchObject({ status: 'failed' })
+      expect(interrupted?.error).toContain('interrupted')
       expect(restored.getPublishJob(spec, next.id)?.status).toBe('queued')
-      pending.resolve()
+      pending.resolve(undefined)
       await run
       expect(service.get(spec)).toMatchObject({ currentRevisionId: second.id, publishedRevisionId: first.id })
     } finally {
-      pending.resolve()
+      pending.resolve(undefined)
       await run
     }
   })

@@ -459,6 +459,15 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
 }
 
 const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+  async 'sites-project'(cwd) {
+    const { SqliteSiteStateStore } = await import('../../packages/site/site/src/sqlite.ts')
+    const { parseSiteSnapshot } = await import('../../packages/site/site/src/snapshot.ts')
+    const directory = join(cwd, '.dsh', 'enterprise')
+    await mkdir(directory, { recursive: true })
+    const store = new SqliteSiteStateStore(join(directory, 'sites.sqlite'))
+    try { store.commit(parseSiteSnapshot(JSON.parse(await readFile(join(cwd, 'site-state.json'), 'utf8')))) }
+    finally { store.close() }
+  },
   async 'editing-cordis-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'editing-cordis-compositions', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })

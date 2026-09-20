@@ -38,6 +38,13 @@ export function geoStore(db: DatabaseSync) {
     list,
     get,
     progress,
+    ensureSession: (sessionId: NonNullable<ReturnType<typeof progress>['sessionId']>) => transact(() => {
+      const value = progress()
+      if (value.sessionId) return value
+      const next = { ...value, sessionId, revision: value.revision + 1 }
+      saveProgress(next)
+      return next
+    }),
     verifyProduct: (id: GeoRecord['id'], expectedRevision: number): GeoRecord => transact(() => {
       const current = get(id)
       if (!current || current.kind !== 'product') throw new GeoError(404, 'missing')
@@ -46,7 +53,7 @@ export function geoStore(db: DatabaseSync) {
       if (!productReadiness(current.product, true, now).previewReady) throw new GeoError(409, 'geoIncomplete')
       return write({ ...current, revision: current.revision + 1, productVerifiedAt: now.toISOString(), updatedAt: now.toISOString() })
     }),
-    bind: (sessionId: string, expectedRevision: number) => transact(() => {
+    bind: (sessionId: NonNullable<ReturnType<typeof progress>['sessionId']>, expectedRevision: number) => transact(() => {
       const value = progress()
       if (value.revision !== expectedRevision) throw new GeoError(409, 'geoConflict')
       saveProgress({ ...value, sessionId, revision: value.revision + 1 })

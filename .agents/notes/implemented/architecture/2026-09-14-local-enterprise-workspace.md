@@ -14,6 +14,10 @@ The [enterprise plugin](../../../../trade/enterprise/README.md) contributes nati
 
 The company GEO revision also owns its Supplier Commerce Profile graph. Human confirmation covers objects, relationships, claim qualifications and evidence references together. Document references address immutable uploaded file ids and indexed ordinals; retrieval reports deleted evidence as missing. Product references retain catalog ownership. External procurement reads require a separate Bearer key, exact confirmed-revision grants and independent document grants. Confirming a replacement never inherits its predecessor's external grant.
 
+The [profile interaction decision](../feature/2026-09-20-supplier-profile-reading.md) governs reading collections, contextual details and focused maintenance while retaining these data owners.
+
+Initialization uses a native Session identifier reserved atomically in SQLite so simultaneous browsers and reloads reach one conversation. A persisted fixed title and Assistant entry inside the enterprise workspace separate onboarding from ordinary work; browser-only state would lose that relationship on reload. First-run preparation sends no model request. Explicit conversation entry loads the skill, and completion still requires human confirmation of the exact scope.
+
 ## Alternatives considered
 
 **Separate GEO application or fixed onboarding forms.** Onboarding belongs to the existing chat. A bundled skill owns the question sequence while SQLite owns dynamic company and product drafts. The entry button invokes the native skill loader; the chat question service obtains confirmation for an exact stored revision. This preserves user review without making industry fields part of the application schema.

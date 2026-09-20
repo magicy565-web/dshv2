@@ -33,7 +33,7 @@ describe('site workflow', () => {
 
   it('rejects concurrent revisions of the same site', async () => {
     const f = await fixture()
-    const pending = Promise.withResolvers<void>()
+    const pending = Promise.withResolvers<undefined>()
     const original = f.provider.publish.bind(f.provider)
     vi.spyOn(f.provider, 'publish').mockImplementation(async (spec, request) => { await pending.promise; return original(spec, request) })
     const workflow = new SitePublishWorkflow(f.sites, f.shopify, f.options)
@@ -43,7 +43,7 @@ describe('site workflow', () => {
       const job = await f.sites.queuePublishJob(f.spec, revision.id)
       await expect(workflow.run(f.spec, revision, job)).rejects.toThrow('already running')
     } finally {
-      pending.resolve()
+      pending.resolve(undefined)
       await first
     }
   })

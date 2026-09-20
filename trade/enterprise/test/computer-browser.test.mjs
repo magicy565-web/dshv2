@@ -1,4 +1,4 @@
-/** Real profile and browser proof for Sites creation, asset preview, editing and historical restoration. */
+/** Built-profile browser evidence for computer motion, worker authorization and human acceptance. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
@@ -38,7 +38,7 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   } }]))
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD/i.test(key)))
   child = spawn(process.execPath, [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
-    cwd: root, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: directory, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let logs = ''
   child.stderr.on('data', value => { logs += value })
@@ -66,6 +66,42 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   await page.getByRole('button', { name: '企业云电脑', exact: true }).click()
   try { await page.getByRole('heading', { name: '企业云电脑', exact: true }).waitFor({ timeout: 10000 }) }
   catch (error) { await page.screenshot({ path: join(evidence, 'failure.png') }); throw new Error(`${error.message}\n${errors.join('\n')}\n${await page.locator('body').innerText()}`) }
+  const previewWrites = []
+  const watchWrites = request => { if (request.method() === 'POST' && request.url().includes('/api/enterprise')) previewWrites.push(request.url()) }
+  page.on('request', watchWrites)
+  assert.equal(await page.locator('.cm-experience').isVisible(), true)
+  assert.equal(await page.locator('.cm-desktop').count(), 0)
+  assert.equal(await page.locator('.cm-metric').count(), 4)
+  assert.equal(await page.locator('.cm-illustration-panel').isVisible(), false)
+  assert.equal(await page.locator('.cm-experience').evaluate(element => element.getAnimations({ subtree: true }).length), 0)
+  await page.getByRole('button', { name: '动效预览', exact: false }).click()
+  for (const [label, phase] of [['03 执行', 'working'], ['04 等待接管', 'human'], ['05 完成', 'complete'], ['06 断开', 'offline']]) {
+    await page.getByRole('button', { name: label, exact: true }).click()
+    assert.equal(await page.locator('.cm-scene').getAttribute('data-phase'), phase)
+  }
+  await page.getByRole('button', { name: '03 执行', exact: true }).click()
+  await page.getByRole('button', { name: '暂停动效', exact: true }).click()
+  assert.equal(await page.locator('.cm-experience').evaluate(element => element.getAnimations({ subtree: true }).length), 0)
+  await page.getByRole('button', { name: '开启动效', exact: true }).click()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: '已减少动态效果', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '播放全流程', exact: true }).isEnabled(), false)
+  assert.equal(await page.locator('.cm-experience').evaluate(element => element.getAnimations({ subtree: true }).length), 0)
+  await page.getByRole('button', { name: '05 完成', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  assert.equal(await page.locator('.cm-scene').getAttribute('data-phase'), 'complete')
+  await page.screenshot({ path: join(evidence, 'motion-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: join(evidence, 'motion-mobile.png') })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  assert.deepEqual(previewWrites, [])
+  page.off('request', watchWrites)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.getByRole('button', { name: '工作概览', exact: true }).click()
+  assert.equal(await page.locator('.cm-scene').getAttribute('data-phase'), 'idle')
+  assert.equal(await page.locator('.cm-illustration-panel').isVisible(), false)
+  await page.getByRole('heading', { name: '你的第一台云电脑', exact: true }).waitFor()
   await page.getByRole('button', { name: '绑定工位', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '绑定工位', exact: true })
   for (const [name, value] of [['工位名称', '美国市场工位'], ['独立供应商账号标识', 'research-user'], ['岗位名称', '市场研究员'], ['原生电脑 HTTPS 入口（不含令牌或查询参数）', 'https://grok.com/'], ['岗位职责与授权规则', '只做资料研究；对外写入须先申请审批。']]) await dialog.getByLabel(name, { exact: true }).fill(value)
@@ -90,12 +126,59 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   assert.equal((await worker('manifest', 'GET', undefined, token, { origin: origin })).status, 403)
   const manifest = await worker('manifest')
   assert.equal(manifest.headers.get('cache-control'), 'no-store')
-  assert.equal((await manifest.json()).capabilities.embeddedDesktop, 'UNVERIFIED')
+  assert.equal((await manifest.json()).capabilities.embeddedDesktop, 'CONNECTOR_REQUIRED')
+  assert.equal(first.connections[0].state, 'unpaired')
+  const connectorDownload = await context.request.get(`${origin}/api/enterprise/computer-connector`)
+  assert.equal(connectorDownload.status(), 200)
+  assert.match(await connectorDownload.text(), /Outbound DSH connector/)
+  const desktopEndpoint = `${origin}/api/enterprise/computer-desktop?id=${binding.id}`
+  assert.equal((await fetch(desktopEndpoint)).status, 401)
+  await page.locator('.ent-header').getByRole('button', { name: '云电脑控制台', exact: true }).click()
+  await page.getByRole('button', { name: '查看桌面', exact: true }).click()
+  const instanceId = crypto.randomUUID()
+  const heartbeat = { instanceId, version: 1, platform: 'Linux', architecture: 'x86_64', desktop: 'ready', input: true, frame: null, receipt: null }
+  const beat = async data => { const response = await worker('heartbeat', 'POST', { ...heartbeat, ...data }); assert.equal(response.status, 200, await response.clone().text()); return response.json() }
+  assert.equal((await beat({})).capture, true)
+  const frame = { id: crypto.randomUUID(), width: 1, height: 1, png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=' }
+  await beat({ frame })
+  await page.getByRole('img', { name: '云电脑实时截图' }).waitFor()
+  await page.getByRole('button', { name: '接管操作', exact: true }).click()
+  await page.getByRole('button', { name: '回车', exact: true }).click()
+  const input = (await beat({ frame: { ...frame, id: crypto.randomUUID() } })).command
+  assert.equal(input.input.kind, 'key')
+  assert.equal(input.input.key, 'Return')
+  assert.equal(input.frameId, frame.id)
+  assert.equal((await beat({ receipt: { id: input.id, status: 'applied' } })).command, null)
+  await page.getByText('操作已执行', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '停止查看', exact: true }).click()
+  await page.getByRole('button', { name: '工作概览', exact: true }).click()
+  assert.equal(await page.locator('.cm-experience').isVisible(), true)
+  const workstationSearch = page.getByRole('searchbox', { name: '搜索工位名称、岗位或账号' })
+  await workstationSearch.fill('没有这个工位')
+  await page.getByText('没有符合条件的工位', { exact: true }).waitFor()
+  assert.equal(await page.locator('.cm-binding').count(), 0)
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click()
+  assert.equal(await page.locator('.cm-binding').count(), 1)
+  await workstationSearch.fill('市场研究员')
+  assert.equal(await page.locator('.cm-binding').count(), 1)
+  await workstationSearch.fill('')
+  const connectionMenu = page.getByRole('button', { name: '连接管理', exact: true })
+  await connectionMenu.click()
+  await page.getByRole('menu').waitFor()
+  await page.getByRole('menuitem', { name: '轮换连接凭据', exact: true }).press('Escape')
+  await page.getByRole('menu').waitFor({ state: 'hidden' })
+  assert.equal(await connectionMenu.evaluate(element => element === document.activeElement), true)
+  await connectionMenu.click()
+  await page.getByRole('menuitem', { name: '断开连接', exact: true }).click()
+  const disconnectDialog = page.getByRole('dialog', { name: '断开连接', exact: true })
+  await disconnectDialog.waitFor()
+  assert.equal(await page.getByRole('menu').count(), 0)
+  await disconnectDialog.getByRole('button', { name: '关闭', exact: true }).click()
   assert.equal((await fetch(endpoint)).status, 401)
   const upload = await context.request.post(new URL('/api/enterprise/upload', url).href, { headers: { 'x-file-name': 'source.txt' }, data: 'Approved product facts, revision 1' })
   assert.equal(upload.status(), 201)
   const file = (await upload.json()).files[0]
-  await page.getByRole('button', { name: '分配工作', exact: true }).click()
+  await page.locator('.cm-binding').getByRole('button', { name: '分配工作', exact: true }).click()
   const workDialog = page.getByRole('dialog', { name: '分配工作', exact: true })
   await workDialog.getByLabel('任务目标', { exact: true }).fill('整理本周客户研究资料')
   await workDialog.getByLabel('本次授权上下文（注明资料版本、已确认条件及未知信息）', { exact: true }).fill('企业资料版本 1；MOQ 未确认；仅允许公开研究。')
@@ -134,7 +217,8 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   await report('submit_result', '报告已上传；MOQ 尚待核实。')
   assert.equal(job.state, 'VERIFYING')
   await page.getByRole('button', { name: '刷新', exact: true }).click()
-  await page.getByText('等待验收', { exact: true }).waitFor()
+  await page.locator('.cm-job-state').filter({ hasText: '等待验收' }).waitFor()
+  assert.equal(await page.locator('.cm-scene').getAttribute('data-phase'), 'human')
   await page.screenshot({ path: join(evidence, 'computers-desktop.png') })
   await page.getByRole('button', { name: '验收结果', exact: true }).click()
   const review = page.getByRole('dialog', { name: '验收结果', exact: true })
@@ -142,6 +226,7 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   await review.getByRole('button', { name: '保存', exact: true }).click()
   await review.waitFor({ state: 'hidden' })
   assert.equal((await snapshot()).jobs[0].state, 'SUCCEEDED')
+  assert.equal(await page.locator('.cm-scene').getAttribute('data-phase'), 'complete')
   const enterprise = await (await context.request.get(new URL('/api/enterprise', url).href)).json()
   assert.equal(enterprise.tasks.find(task => task.id === job.taskId).status, 'done')
   const second = await command({ action: 'create', job: { ...duplicateInput, id: crypto.randomUUID(), objective: '验证停止确认', inputFileIds: [file.id] } })
@@ -158,7 +243,7 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   assert.equal(second.jobs.length, 2)
   await page.reload()
   await page.getByRole('button', { name: '企业云电脑', exact: true }).click()
-  await page.getByText('验收通过', { exact: true }).waitFor()
+  await page.locator('.cm-binding .cm-job-state').filter({ hasText: '验收通过' }).waitFor()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: '打开侧边栏', exact: true }).waitFor()
   await page.waitForFunction(() => document.querySelector('.ent-computers').getBoundingClientRect().width >= 300)
@@ -171,7 +256,7 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   const previousArgs = child.spawnargs.slice(1)
   const exited = once(child, 'exit')
   child.kill(); await exited
-  child = spawn(process.execPath, previousArgs, { cwd: root, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'] })
+  child = spawn(process.execPath, previousArgs, { cwd: directory, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'] })
   const restartedOrigin = await new Promise((resolve, reject) => {
     let output = ''
     const timeout = setTimeout(() => reject(new Error(`Restart timed out: ${output}`)), 30000)

@@ -111,7 +111,7 @@ export function createSiteHttpHandler(
                 const url = new URL(request.url)
                 url.searchParams.set('path', path)
                 return `${url.pathname}${url.search}`
-              }, options.maxBodyBytes)
+              }, options.maxBodyBytes, true)
             }
             catch (error) { return json({ error: error instanceof Error ? error.message : 'site build failed' }, 422) }
           }

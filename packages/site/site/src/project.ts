@@ -108,7 +108,7 @@ export function sitePreviewResponse(artifact: SiteArtifact, path: string): Respo
   const file = findSiteArtifactFile(artifact, path)
   const headers = {
     'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow', 'x-content-type-options': 'nosniff',
-    'content-security-policy': "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' data:; media-src 'self' https: data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    'content-security-policy': "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' data:; media-src 'self' https: data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
   }
   if (!file) return new Response('Not found', { status: 404, headers })
   return new Response(Buffer.from(file.base64, 'base64'), { headers: { ...headers, 'content-type': file.contentType } })

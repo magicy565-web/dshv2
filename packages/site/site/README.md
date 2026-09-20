@@ -17,6 +17,16 @@ Projects record their framework (`static` or `nextjs`) and source files with UTF
 
 `build` produces deterministic static artifacts tied to the exact revision. It requires `index.html`, preserves binary resources and never runs project code on the Host. Next.js projects can be stored but require a separate isolated framework build provider. Private previews use a sandbox without editor DOM or cookie access, disable network requests from scripts, and return `no-store` and `noindex`. Preview compilation resolves only saved project files, not Host files or installed Host packages.
 
+Static preview compilation preserves stylesheet media conditions, deferred script execution, responsive image candidates and local SVG fragments. Missing local assets fail compilation. Files in the Host working directory cannot replace or prevent resolution of saved entries. Embedded page links ask the authenticated editor to load another path within the selected site revision; the sandbox retains its opaque origin. Standalone builds use ordinary page links.
+
+## Template providers
+
+`SiteTemplateService` registers installed `SiteTemplateProvider` implementations under exact id/version pairs. A provider supplies its input JSON Schema, `resolve` validates input and supplies defaults, and `render` produces portable source. Register providers inside an owning `ctx.effect`, returning the registration disposer. Duplicate versions fail. The [manufacturing provider](../../../trade/enterprise/src/site-template-provider.ts) is a working consumer-independent implementation; the enterprise editor and tools share the registry. Provider code is trusted installation code, not executable content accepted from a website request.
+
+`generate` adds `site.template.json` containing the exact version, resolved parameters and a digest of the other source files. `inspect` reads this receipt without the provider installed. `regenerate` requires unchanged source and the recorded provider version; manual source changes or an unavailable version reject the operation. The receipt is editable provenance, not a signature or public-content approval. New templates do not change existing saved projects. Preserve source editing for customized projects or generate a separate site; automatic merging and version migration are not provided.
+
+Consumers enforce their complete request-byte limit before saving. `createSiteWithProject` atomically stores the site and initial source revision; persistence failure leaves neither record. Later regeneration uses ordinary version-checked revisions, preview, export and rollback. The registry contains one authoritative provider map and has no independent invariant companion; source divergence is checked when regeneration is requested.
+
 ## Publication lifecycle
 
 The memory provider queues jobs separately from execution. Duplicate queued or running requests for the same revision reuse the job; a site permits only one running publication. Queued jobs can be cancelled. Execution requires a configured publisher and records success only after it completes. Failure preserves the previous `publishedRevisionId`; edits made during publication retain their separate `currentRevisionId`.

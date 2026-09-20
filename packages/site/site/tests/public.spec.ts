@@ -25,6 +25,6 @@ describe('public site projection', () => {
     const site = service.createSite(TenantId('owner'), 'Store', StoreConnectionId('store'))
     const spec = { tenantId: site.tenantId, siteId: site.id }
     const revision = await service.createRevision(spec, {}, 'user')
-    expect(() => service.restore({ sites: [{ ...site, publishedRevisionId: 'missing' as never }], revisions: [revision], jobs: [] })).toThrow('site revision reference')
+    expect(() =>{  service.restore({ sites: [{ ...site, publishedRevisionId: 'missing' as never }], revisions: [revision], jobs: [] }) }).toThrow('site revision reference')
   })
 })

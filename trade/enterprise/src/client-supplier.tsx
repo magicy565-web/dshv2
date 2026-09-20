@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { geoRecord } from './geo-schema.ts'
 import { fileSchema } from './schema.ts'
-import type { Profile } from './schema.ts'
+import type { Asset, Profile } from './schema.ts'
 import { supplierGraph, supplierKind } from './supplier.ts'
 import type { SupplierGraph } from './supplier.ts'
 import { procurementRecord, supplierAccess, supplierRevision } from './supplier-workspace.ts'
@@ -12,6 +12,14 @@ import { supplierMatchInput } from './supplier-matching.ts'
 import { SupplierEditor, SupplierField, kindLabels, statusLabels, relationLabels, sourceLabels } from './supplier-editor.tsx'
 import type { SupplierT } from './supplier-editor.tsx'
 import type { EnterpriseKey } from './locales.ts'
+import { ProfileIcon } from './profile-icons.tsx'
+import { SupplierDialog } from './supplier-dialog.tsx'
+import { SupplierExplorer } from './supplier-explorer.tsx'
+import { ProfileMedia, ProfileMediaPicker } from './profile-media.tsx'
+import { profileVisualStyle } from './profile-visual-style.ts'
+import { supplierExperienceStyle } from './supplier-experience-style.ts'
+import { resolveSupplierPresentation } from './supplier-presentation.ts'
+import { SupplierPresentationEditor } from './supplier-presentation-editor.tsx'
 
 const stateSchema = z.object({ records: z.array(geoRecord), products: z.array(z.object({ id: z.string(), name: z.string() })), files: z.array(fileSchema), access: supplierAccess.omit({ expectedRevision: true }).extend({ revision: z.number() }), externalEnabled: z.boolean(), requests: z.array(procurementRecord), receipts: z.array(supplierRevision.extend({ checkedAt: z.string(), actor: z.literal('human') })) })
 type State = z.infer<typeof stateSchema>
@@ -23,7 +31,8 @@ const requestStatus = { draft: 'supplierDraftLabel', submitted: 'supplierSubmitt
 
 function GraphView({ graph, t, filter = '', search = '', read }: { graph: SupplierGraph; t: SupplierT; filter?: string; search?: string; read?: (fileId: string, chunk: number) => void }) {
   const matches = (item: SupplierGraph['nodes'][number]) => (!filter || item.kind === filter) && `${item.title} ${item.summary} ${item.buyerTypes.join(' ')} ${item.markets.join(' ')}`.toLowerCase().includes(search.toLowerCase())
-  return <div>{supplierKind.options.map(kind => {
+  const plan = resolveSupplierPresentation(graph)
+  return <div>{graph.presentation && <section className="sp-plan-preview"><h3>{t('supplierPresentation')}</h3><strong>{plan.headline}</strong><p>{plan.introduction}</p><p>{plan.primary.map(kind => t(kindLabels[kind])).join(' → ')}</p><p>{graph.presentation.featuredIds.map(id => graph.nodes.find(node => node.id === id)?.title).join(' · ')}</p></section>}{supplierKind.options.map(kind => {
     const nodes = graph.nodes.filter(item => item.kind === kind && matches(item))
     return nodes.length ? <section key={kind} className="ent-section"><h3>{t(kindLabels[kind])}</h3><div className="supplier-cards">{nodes.map(node => <article className="supplier-card" key={node.id}>
       <h4>{node.title}</h4><p>{node.summary}</p><div className="supplier-pills">{[...node.buyerTypes, ...node.markets, ...node.businessModels].map((value, index) => <span key={index}>{value}</span>)}</div>
@@ -50,18 +59,30 @@ function GraphView({ graph, t, filter = '', search = '', read }: { graph: Suppli
  * @param props - Existing company identity, typed locale and native chat entry.
  * @returns Supplier workspace with independent review and disclosure actions.
  */
-export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: SupplierT; generate: (prompt: string, newSession?: boolean) => Promise<boolean> }) {
+export function SupplierPanel({ profile, t, generate, files, upload, saveMedia }: { profile: Profile; t: SupplierT; generate: (prompt: string, newSession?: boolean) => Promise<boolean>; files: Asset[]; upload: (files: File[]) => Promise<boolean>; saveMedia: (media: NonNullable<Profile['media']>) => Promise<boolean> }) {
+  const [imageTarget, setImageTarget] = useState<{ type: 'cover' } | { type: 'node'; id: SupplierGraph['nodes'][number]['id'] } | null>(null)
+  const media = profile.media ?? { coverId: null, nodeImages: {} }
+  const selectImage = async (id: Asset['id'] | null): Promise<boolean> => {
+    if (!imageTarget) return false
+    if (imageTarget.type === 'cover') return saveMedia({ ...media, coverId: id })
+    const nodeImages = { ...media.nodeImages }
+    if (id) nodeImages[imageTarget.id] = id
+    else delete nodeImages[imageTarget.id]
+    return saveMedia({ ...media, nodeImages })
+  }
   const [state, setState] = useState<State | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<EnterpriseKey | null>(null)
   const [editing, setEditing] = useState(false)
+  const [editingPresentation, setEditingPresentation] = useState(false)
+  const [editNodeId, setEditNodeId] = useState<string | undefined>()
+  const [discard, setDiscard] = useState(false)
+  const [showConfirmed, setShowConfirmed] = useState(false)
   const [graph, setGraph] = useState<SupplierGraph>({ nodes: [], evidence: [], relations: [] })
   const [editingRecord, setEditingRecord] = useState<Record | null>(null)
   const [editingId, setEditingId] = useState('')
   const [questions, setQuestions] = useState('')
   const [view, setView] = useState<'objects' | 'match' | 'inbox' | 'access'>('objects')
-  const [kind, setKind] = useState('')
-  const [search, setSearch] = useState('')
   const [review, setReview] = useState<{ record: Record; action: 'confirm' | 'verify' } | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
   const [passage, setPassage] = useState<string | null>(null)
@@ -98,25 +119,54 @@ export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: S
   const current = state?.records.filter(record => record.status === 'confirmed' && record.supplier && !state.records.some(other => other.supersedesId === record.id && other.status === 'confirmed')) ?? []
   const confirmed = current[0]
   const draft = state?.records.find(record => record.status === 'draft' && record.supplier)
-  const selected = draft ?? confirmed
+  const selected = showConfirmed && confirmed ? confirmed : draft ?? confirmed
+  const presentation = resolveSupplierPresentation(selected?.supplier ?? { nodes: [], evidence: [], relations: [] })
+  const dirty = editing && (JSON.stringify(graph) !== JSON.stringify(editingRecord?.supplier ?? { nodes: [], evidence: [], relations: [] }) || questions !== (editingRecord?.questions ?? ''))
+  useEffect(() => {
+    if (!dirty) return
+    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', prevent)
+    return () => window.removeEventListener('beforeunload', prevent)
+  }, [dirty])
+  const closeEditor = (): void => { if (busy) return; if (dirty) setDiscard(true); else setEditing(false) }
+  const startEdit = (nodeId?: string, layout = false): void => {
+    setEditingPresentation(layout)
+    const record = draft ?? confirmed
+    setEditingRecord(record ?? null); setEditingId(record?.status === 'draft' ? record.id : crypto.randomUUID())
+    setQuestions(record?.questions ?? ''); setGraph(structuredClone(record?.supplier ?? { nodes: [], evidence: [], relations: [] }))
+    setEditNodeId(nodeId); setDiscard(false); setEditing(true)
+  }
+  const ask = (title = ''): void => { void run(async () => {
+    if (!await generate(`/product-geo ${title ? t('supplierEditFocusPrompt', { name: title }) : t('supplierBuildPrompt')}`, !title)) throw new Error('supplierError')
+  }) }
   const read = (fileId: string, chunk: number): void => { void run(async () => { const value = z.object({ citation: z.string(), content: z.string() }).parse(await api(`/supplier/document?fileId=${encodeURIComponent(fileId)}&chunk=${chunk}`)); setPassage(`${value.citation}\n\n${value.content}`) }) }
   const save = (): void => { void run(async () => {
     const supplier = supplierGraph.parse(graph)
     const base = editingRecord
     const fields = { kind: 'company', name: base?.name ?? profile.name, description: base?.description || profile.description || profile.name, questions, sections: base?.sections.length ? base.sections : [{ label: t('supplierTitle'), content: profile.description || profile.name, source: t('supplierUser') }], supplier }
     const result = geoRecord.parse(await api('/supplier/draft', { id: editingId, expectedRevision: base?.status === 'draft' ? base.revision : 0, supersedesId: base?.status === 'confirmed' ? base.id : base?.supersedesId ?? null, fields }))
-    setEditing(false); setEditingRecord(result); await load()
+    setEditing(false); setShowConfirmed(false); setEditingRecord(result); await load()
   }) }
-  return <div className="supplier-panel" role="tabpanel">
+  return <div className="supplier-panel">
     {error && <p role="alert" className="ent-notice">{t(error)}</p>}
-    <section className="supplier-hero"><div><h2>{t('supplierHeadline')}</h2><p>{confirmed?.description || profile.business || t('supplierEmpty')}</p><div className="supplier-pills">{supplierKind.options.map(value => <button key={value} onClick={() => { setView('objects'); setKind(value) }}>{t(kindLabels[value])} · {confirmed?.supplier?.nodes.filter(node => node.kind === value).length ?? 0}</button>)}</div></div>
-    <div className="ent-actions"><Button disabled={busy} onClick={() => { void generate(`/product-geo ${t('supplierBuildPrompt')}`, true) }}>{t('supplierBuild')}</Button><Button disabled={busy} onClick={() => { setEditingRecord(selected ?? null); setEditingId(selected?.status === 'draft' ? selected.id : crypto.randomUUID()); setQuestions(selected?.questions ?? ''); setGraph(structuredClone(selected?.supplier ?? { nodes: [], evidence: [], relations: [] })); setEditing(true) }}>{t('supplierEdit')}</Button><Button disabled={busy} onClick={() => { void run(load) }}>{t('retry')}</Button></div></section>
-    {selected && <p className="ent-muted">{t(selected.status === 'draft' ? 'supplierDraftLabel' : 'supplierConfirmed')} · {t('supplierRevision', { n: selected.revision })} · {t(state?.receipts.some(receipt => receipt.id === selected.id && receipt.revision === selected.revision) ? 'supplierAttested' : 'supplierUnverified')}</p>}
-    {!editing && <div className="ent-actions">{draft && <Button disabled={busy} variant="primary" onClick={() => { setAcknowledged(false); setReview({ record: draft, action: 'confirm' }) }}>{t('supplierReview')}</Button>}{confirmed && <><Button disabled={busy} onClick={() => { setAcknowledged(false); setReview({ record: confirmed, action: 'verify' }) }}>{t('supplierVerify')}</Button><Button disabled={busy} onClick={() => setRequest({ id: crypto.randomUUID(), type: 'quote', nodeIds: [], name: '', email: '', message: '' })}>{t('supplierRequest')}</Button></>}</div>}
-    {selected?.questions && !editing && <p className="ent-notice supplier-pre">{t('supplierQuestions')}: {selected.questions}</p>}
-    {editing && state ? <><SupplierField label={t('supplierQuestions')} multiline value={questions} onChange={setQuestions} /><SupplierEditor graph={graph} change={setGraph} files={state.files} products={state.products} t={t} /><div className="supplier-sticky ent-actions"><Button variant="primary" disabled={busy} onClick={save}>{t('supplierDraft')}</Button><Button onClick={() => setEditing(false)} disabled={busy}>{t('cancel')}</Button></div></> : <>
-      <nav className="ent-tabs">{Object.entries({ objects: 'supplierObjects', match: 'supplierMatch', inbox: 'supplierInbox', access: 'supplierAccess' } as const).map(([value, label]) => <button className="ent-tab" aria-pressed={view === value} key={value} onClick={() => setView(value as typeof view)}>{t(label)}</button>)}</nav>
-      {view === 'objects' && <><div className="ent-toolbar"><select aria-label={t('supplierObjects')} value={kind} onChange={event => setKind(event.target.value)}><option value="">{t('all')}</option>{supplierKind.options.map(value => <option key={value} value={value}>{t(kindLabels[value])}</option>)}</select><input aria-label={t('supplierSearch')} placeholder={t('supplierSearch')} value={search} onChange={event => setSearch(event.target.value)} /></div>{selected?.supplier ? <GraphView graph={selected.supplier} t={t} filter={kind} search={search} read={read} /> : <p className="ent-empty">{t('supplierEmpty')}</p>}</>}
+    <div className="sp-profile-toolbar"><span className="sp-edition"><span />{t('supplierWorkspaceLabel')}</span><div className="sp-profile-tools"><Button className="sp-chat-button" variant="primary" disabled={busy} onClick={() => ask()}><ProfileIcon name="sparkle" size={17} />{t('supplierBuild')}<ProfileIcon name="arrowUp" size={15} /></Button><details className="sp-menu"><summary><ProfileIcon name="settings" size={17} />{t('supplierManage')}<ProfileIcon name="chevron" size={14} /></summary><div>
+      <button type="button" disabled={busy} onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); startEdit(undefined, true) }}>{t('supplierPresentation')}</button>
+      <button type="button" disabled={busy} onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); startEdit() }}>{t('supplierMaintain')}</button>
+      {Object.entries({ match: 'supplierMatch', inbox: 'supplierInbox', access: 'supplierAccess' } as const).map(([value, label]) => <button type="button" key={value} onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setView(value as typeof view) }}>{t(label)}</button>)}
+      <button type="button" disabled={busy} onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); void run(load) }}>{t('supplierRefresh')}</button>
+    </div></details></div></div>
+    <section className={`sp-hero sp-hero-${presentation.focus}`}>
+      <div className="sp-hero-copy"><h2>{presentation.headline || profile.business || profile.name}</h2><p>{presentation.introduction || selected?.description || profile.description || t('supplierWorkspaceHint')}</p>
+        <div className="sp-hero-status"><span className="sp-dot" />{selected ? t(selected.status === 'draft' ? 'supplierDraftLabel' : 'supplierConfirmed') : t('supplierNoProfile')}{selected && <span> · {t('supplierRevision', { n: selected.revision })}</span>}</div>
+      </div>
+      <ProfileMedia asset={files.find(file => file.id === media.coverId)} label={t('supplierCoverImage')} hint={t('supplierCoverHint')} t={t} cover choose={() => setImageTarget({ type: 'cover' })} />
+    </section>
+    {draft && <div className="sp-review-banner"><div><strong>{t('supplierNeedsReview')}</strong><p>{t(showConfirmed && confirmed ? 'supplierConfirmed' : 'supplierDraftHint')}</p></div><div className="ent-actions">{confirmed && <Button disabled={busy} onClick={() => setShowConfirmed(value => !value)}>{t(showConfirmed ? 'supplierDraftView' : 'supplierSavedView')}</Button>}<Button disabled={busy} onClick={() => { setAcknowledged(false); setReview({ record: draft, action: 'confirm' }) }}>{t('supplierReview')}</Button></div></div>}
+    {view !== 'objects' && <div className="sp-workspace-tools"><Button onClick={() => setView('objects')}><ProfileIcon name="overview" size={16} />{t('supplierOverview')}</Button><h3>{t(({ match: 'supplierMatch', inbox: 'supplierInbox', access: 'supplierAccess' } as const)[view])}</h3></div>}
+    {selected?.questions && <details className="sp-questions"><summary>{t('supplierQuestions')}</summary><p className="supplier-pre">{selected.questions}</p></details>}
+    {busy && !state && <p role="status">{t('loading')}</p>}
+    {state && view === 'objects' && <SupplierExplorer key={selected?.id ?? 'empty'} graph={selected?.supplier ?? { nodes: [], evidence: [], relations: [] }} files={files} media={media.nodeImages} chooseImage={id => setImageTarget({ type: 'node', id })} t={t} read={read} edit={startEdit} ask={ask} busy={busy} />}
+    <>
       {view === 'match' && <section className="ent-section"><h3>{t('supplierRequirement')}</h3><p>{t('supplierMatchNotice')}</p>{requirements.map((item, index) => {
         const update = (patch: Partial<Requirement>) => setRequirements(values => values.map((value, i) => i === index ? { ...value, ...patch } : value))
         return <div className="supplier-card ent-grid" key={index}><SupplierField label={t('supplierAttribute')} value={item.attribute} onChange={attribute => update({ attribute })} /><SupplierField label={t('supplierValueField')} value={String(item.value)} onChange={value => update({ value: typeof item.value === 'number' ? Number(value) : value })} />
@@ -126,7 +176,18 @@ export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: S
       {matches?.candidates.map(item => <article className="supplier-card" key={item.nodeId}><h4>{item.title}</h4><strong>{t(item.status === 'MATCH' ? 'supplierMatched' : item.status === 'NO_MATCH' ? 'supplierNoMatch' : 'supplierPossible')}</strong>{(['known', 'unknown', 'conflicts'] as const).map(key => <div key={key}><h5>{t(({ known: 'supplierKnown', unknown: 'supplierUnknowns', conflicts: 'supplierConflicts' } as const)[key])}</h5><ul>{item[key].map((fact, index) => <li key={index}>{fact.attribute}: {String(fact.value)}</li>)}</ul></div>)}<Button onClick={() => setRequest({ id: crypto.randomUUID(), type: item.status === 'MATCH' ? 'quote' : 'specification', nodeIds: [item.nodeId], name: '', email: '', message: requirements.map(value => `${value.attribute}: ${value.value} ${value.unit}`).join('\n') })}>{t('supplierRequest')}</Button></article>)}</section>}
       {view === 'inbox' && <section className="ent-section"><h3>{t('supplierInbox')}</h3>{!state?.requests.length && <p>{t('supplierNoResults')}</p>}{state?.requests.map(item => <article className="supplier-card" key={item.id}><h4>{t(requestLabels[item.type])} · {item.name}</h4><p>{item.email}</p><p className="supplier-pre">{item.message}</p><p>{t(requestStatus[item.status])}</p><p>{t('supplierRequestNotice')}</p><div className="ent-actions">{item.status !== 'closed' && <Button disabled={busy} onClick={() => { void run(async () => { await api('/supplier/request-status', { id: item.id, expectedRevision: item.revision, status: item.status === 'draft' ? 'submitted' : item.status === 'submitted' ? 'in_review' : 'closed' }); await load() }) }}>{t(item.status === 'draft' ? 'supplierSubmit' : item.status === 'submitted' ? 'supplierStartReview' : 'supplierCloseRequest')}</Button>}</div></article>)}</section>}
       {view === 'access' && grants && <section className="ent-section"><h3>{t('supplierAccess')}</h3><p>{t('supplierShareNotice')}</p><p>{t(state?.externalEnabled ? 'supplierKeyReady' : 'supplierKeyMissing')}</p><p>{t('supplierEndpoint')}: <code>{`${location.origin}/supplier/v1/manifest`}</code></p><fieldset><legend>{t('supplierConfirmed')}</legend>{current.map(item => <label className="supplier-check" key={item.id}><input type="checkbox" checked={grants.records.some(grant => grant.id === item.id && grant.revision === item.revision)} onChange={event => setGrants({ ...grants, records: event.target.checked ? [...grants.records.filter(grant => grant.id !== item.id), { id: item.id, revision: item.revision }] : grants.records.filter(grant => grant.id !== item.id) })} />{item.name} · {t('supplierRevision', { n: item.revision })}</label>)}</fieldset><fieldset><legend>{t('supplierDocument')}</legend>{state?.files.map(file => <label className="supplier-check" key={file.id}><input type="checkbox" checked={grants.documents.includes(file.id)} onChange={event => setGrants({ ...grants, documents: event.target.checked ? [...grants.documents, file.id] : grants.documents.filter(id => id !== file.id) })} />{file.name}</label>)}</fieldset><Button variant="primary" disabled={busy} onClick={() => { void run(async () => { await api('/supplier/access', { expectedRevision: grants.revision, records: grants.records.filter(grant => current.some(record => record.id === grant.id && record.revision === grant.revision)), documents: grants.documents.filter(id => state?.files.some(file => file.id === id)) }); await load() }) }}>{t('supplierShare')}</Button></section>}
-    </>}
+    </>
+    {confirmed && view === 'objects' && <footer className="sp-profile-footer"><span>{t(state?.receipts.some(receipt => receipt.id === confirmed.id && receipt.revision === confirmed.revision) ? 'supplierAttested' : 'supplierUnverified')}</span><Button disabled={busy} onClick={() => { setAcknowledged(false); setReview({ record: confirmed, action: 'verify' }) }}>{t('supplierVerify')}</Button><Button disabled={busy} onClick={() => setRequest({ id: crypto.randomUUID(), type: 'quote', nodeIds: [], name: '', email: '', message: '' })}>{t('supplierRequest')}</Button></footer>}
+    {imageTarget && <ProfileMediaPicker files={files} selectedId={imageTarget.type === 'cover' ? media.coverId : media.nodeImages[imageTarget.id] ?? null} t={t} select={selectImage} upload={upload} close={() => setImageTarget(null)} />}
+    {editing && state && <SupplierDialog className="ent-dialog sp-editor-dialog" closeLabel={t('close')} title={t(discard ? 'supplierDiscardTitle' : editingPresentation ? 'supplierPresentation' : 'supplierMaintain')} onClose={closeEditor}>
+      {discard ? <div><p>{t('supplierDiscardHint')}</p><div className="ent-actions"><Button onClick={() => setDiscard(false)}>{t('supplierKeepEditing')}</Button><Button onClick={() => { setDiscard(false); setEditing(false) }}>{t('supplierDiscard')}</Button></div></div> : <>
+        {!editingPresentation && <p className="sp-muted">{t('supplierEditorHint')}</p>}
+        {error && <p role="alert" className="ent-notice">{t(error)}</p>}
+        <fieldset className="sp-editor-fields" disabled={busy}>{editingPresentation ? <SupplierPresentationEditor graph={graph} change={setGraph} companyTitle={profile.business || profile.name} t={t} /> : <SupplierEditor graph={graph} change={setGraph} files={state.files} products={state.products} t={t} initialNodeId={editNodeId} />}
+        <details className="sp-editor-questions"><summary>{t('supplierQuestions')}</summary><SupplierField label={t('supplierQuestions')} multiline value={questions} onChange={setQuestions} /></details></fieldset>
+        <div className="sp-detail-actions"><Button variant="primary" disabled={busy} onClick={save}>{t('supplierDraft')}</Button><Button onClick={closeEditor} disabled={busy}>{t('cancel')}</Button></div>
+      </>}
+    </SupplierDialog>}
     {review && <Modal open closeLabel={t('close')} className="ent-dialog" title={t(review.action === 'confirm' ? 'supplierConfirmQuestion' : 'supplierVerify')} onClose={() => { if (!busy) setReview(null) }}><p>{t(review.action === 'confirm' ? 'supplierConfirmDetail' : 'supplierVerifyQuestion')}</p><div className="supplier-review">{review.record.supplier && <GraphView graph={review.record.supplier} t={t} read={read} />}</div><label className="supplier-check"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} />{t('supplierAcknowledge')}</label><Button disabled={!acknowledged || busy} variant="primary" onClick={() => { void run(async () => { await api(`/supplier/${review.action}`, { id: review.record.id, revision: review.record.revision }); setReview(null); await load() }) }}>{t('geoConfirm')}</Button></Modal>}
     {passage && <Modal open closeLabel={t('close')} className="ent-dialog" title={t('supplierRawDocument')} onClose={() => setPassage(null)}><pre className="supplier-pre">{passage}</pre></Modal>}
     {request && confirmed && <Modal open closeLabel={t('close')} className="ent-dialog" title={t('supplierRequest')} onClose={() => { if (!busy) setRequest(null) }}><form onSubmit={event => { event.preventDefault(); void run(async () => { await api('/supplier/requests', { ...request, recordId: confirmed.id, recordRevision: confirmed.revision }); setRequest(null); setView('inbox'); await load() }) }}><label className="ent-field"><span>{t('supplierRequest')}</span><select value={request.type} onChange={event => setRequest({ ...request, type: event.target.value as typeof request.type })}>{Object.entries(requestLabels).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></label><SupplierField label={t('supplierRequestName')} value={request.name} onChange={name => setRequest({ ...request, name })} /><SupplierField type="email" label={t('supplierRequestEmail')} value={request.email} onChange={email => setRequest({ ...request, email })} /><SupplierField multiline label={t('supplierRequestMessage')} value={request.message} onChange={message => setRequest({ ...request, message })} /><p>{t('supplierRequestNotice')}</p><Button type="submit" variant="primary" disabled={busy}>{t('supplierPrepare')}</Button></form></Modal>}
@@ -134,5 +195,5 @@ export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: S
 }
 
 /** Responsive supplier cards, editor and review layout. */
-export const supplierStyle = `
-.supplier-panel{min-width:0}.supplier-hero{display:grid;gap:20px;padding:24px 0}.supplier-hero h2{font-size:28px;margin:0 0 12px}.supplier-pills{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.supplier-pills>span,.supplier-pills>button,.supplier-badge{border:1px solid var(--border-color,#ddd);border-radius:20px;padding:4px 10px;font-size:12px;background:transparent}.supplier-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px}.supplier-card{min-width:0;padding:18px;border:1px solid var(--border-color,#ddd);border-radius:12px;margin:12px 0;overflow-wrap:anywhere}.supplier-card h4{font-size:17px;margin:0 0 10px}.supplier-card p{margin:8px 0}.supplier-card fieldset{border:0;padding:8px 0}.supplier-fact{margin:12px 0}.supplier-fact dt{font-weight:600}.supplier-fact dd{margin:4px 0}.supplier-claim{padding:12px;border-top:1px solid var(--border-color,#ddd)}.supplier-check{display:block;margin:12px 0}.supplier-check input{margin-right:8px}.supplier-relation{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:12px 0}.supplier-review{max-height:55vh;overflow:auto}.supplier-pre{white-space:pre-wrap;overflow-wrap:anywhere}.supplier-sticky{position:sticky;bottom:0;padding:16px;background:var(--background-color,#fff);border-top:1px solid #ddd}.supplier-panel input:not([type=checkbox]),.supplier-panel select,.supplier-panel textarea{max-width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:6px;background:transparent;color:inherit}.supplier-panel time{display:block;font-size:12px}.supplier-panel fieldset{min-width:0}.supplier-panel code{overflow-wrap:anywhere}@media(max-width:600px){.supplier-hero{padding:12px 0}.supplier-hero h2{font-size:23px}.supplier-card{padding:12px}.supplier-panel .ent-actions{flex-wrap:wrap}}`
+export const supplierStyle = supplierExperienceStyle + `
+.supplier-panel{min-width:0}.supplier-hero{display:grid;gap:20px;padding:24px 0}.supplier-hero h2{font-size:28px;margin:0 0 12px}.supplier-pills{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.supplier-pills>span,.supplier-pills>button,.supplier-badge{border:1px solid var(--border-color,#ddd);border-radius:20px;padding:4px 10px;font-size:12px;background:transparent}.supplier-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px}.supplier-card{min-width:0;padding:18px;border:1px solid var(--border-color,#ddd);border-radius:12px;margin:12px 0;overflow-wrap:anywhere}.supplier-card h4{font-size:17px;margin:0 0 10px}.supplier-card p{margin:8px 0}.supplier-card fieldset{border:0;padding:8px 0}.supplier-fact{margin:12px 0}.supplier-fact dt{font-weight:600}.supplier-fact dd{margin:4px 0}.supplier-claim{padding:12px;border-top:1px solid var(--border-color,#ddd)}.supplier-check{display:block;margin:12px 0}.supplier-check input{margin-right:8px}.supplier-relation{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:12px 0}.supplier-review{max-height:55vh;overflow:auto}.supplier-pre{white-space:pre-wrap;overflow-wrap:anywhere}.supplier-sticky{position:sticky;bottom:0;padding:16px;background:var(--background-color,#fff);border-top:1px solid #ddd}.supplier-panel input:not([type=checkbox]),.supplier-panel select,.supplier-panel textarea{max-width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:6px;background:transparent;color:inherit}.supplier-panel time{display:block;font-size:12px}.supplier-panel fieldset{min-width:0}.supplier-panel code{overflow-wrap:anywhere}@media(max-width:600px){.supplier-hero{padding:12px 0}.supplier-hero h2{font-size:23px}.supplier-card{padding:12px}.supplier-panel .ent-actions{flex-wrap:wrap}}` + profileVisualStyle

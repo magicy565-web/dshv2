@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import { verifyShopifyHmac, ShopifyGraphqlClient } from './client.ts'
 
-export interface OAuthConfig { readonly clientId: string; readonly clientSecret: string; readonly redirectUri: string; readonly scopes: readonly string[] }
+export interface OAuthConfig {
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly redirectUri: string
+  readonly scopes: readonly string[]
+}
 export interface OAuthCallback { readonly code: string; readonly shop: string; readonly state: string; readonly hmac: string }
 export interface OfflineTokenResponse { readonly access_token: string; readonly scope: string }
 
@@ -24,8 +29,15 @@ export function validateOAuthCallback(callback: OAuthCallback, expectedState: st
 }
 
 /** Exchange a validated authorization code for an offline access token. */
-export async function exchangeOfflineToken(callback: OAuthCallback, config: OAuthConfig, fetcher: typeof fetch = fetch): Promise<OfflineTokenResponse> {
-  const response = await fetcher(`https://${callback.shop}/admin/oauth/access_tokens`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_id: config.clientId, client_secret: config.clientSecret, code: callback.code }) })
+export async function exchangeOfflineToken(
+  callback: OAuthCallback, config: OAuthConfig, fetcher: typeof fetch = fetch,
+): Promise<OfflineTokenResponse> {
+  const response = await fetcher(`https://${callback.shop}/admin/oauth/access_tokens`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      client_id: config.clientId, client_secret: config.clientSecret, code: callback.code,
+    }),
+  })
   if (!response.ok) throw new Error(`Shopify OAuth token exchange failed (${response.status})`)
   return await response.json() as OfflineTokenResponse
 }

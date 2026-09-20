@@ -2,6 +2,9 @@
 import { z } from 'zod'
 import { geoProduct } from './geo-product.ts'
 import { supplierGraph } from './supplier.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+const onboardingSessionId = z.string().min(1).max(200).transform(value => value as SessionId)
 
 /** Deployment-local record identifier. */
 export const geoId = z.string().uuid().brand<'GeoId'>()
@@ -26,9 +29,9 @@ export const geoRecord = geoFields.extend({
   productVerifiedAt: z.iso.datetime().optional(),
 }).strict()
 /** Persisted conversation and user-confirmed catalog scope. */
-export const geoProgress = z.object({ sessionId: z.string().nullable(), revision: z.number().int().nonnegative(), scopeIds: z.array(geoId), completedAt: z.iso.datetime().nullable() }).strict()
+export const geoProgress = z.object({ sessionId: onboardingSessionId.nullable(), revision: z.number().int().nonnegative(), scopeIds: z.array(geoId), completedAt: z.iso.datetime().nullable() }).strict()
 /** Browser compare-and-swap prevents concurrent starts from stealing a conversation. */
-export const geoBinding = z.object({ sessionId: z.string().min(1).max(200), expectedRevision: z.number().int().nonnegative() }).strict()
+export const geoBinding = z.object({ sessionId: onboardingSessionId, expectedRevision: z.number().int().nonnegative() }).strict()
 /** Exact records presented when the user finishes the selected onboarding scope. */
 export const geoFinish = z.object({ ids: z.array(geoId).min(1).max(100), language: z.enum(['zh', 'en']) }).strict()
 /** A review addresses a stored revision; its answer comes from the chat interaction service. */

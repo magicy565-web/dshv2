@@ -74,6 +74,7 @@ export function createModel() {
       subscribe: (listener: () => void): (() => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     },
     load: () => run(() => request('')),
+    prepareOnboarding: () => run(() => request('/onboarding/prepare', {})),
     bindSession: (sessionId: string, expectedRevision: number) => run(() => request('/onboarding/session', { sessionId, expectedRevision })),
     save: (profile: Profile) => run(() => request('/profile', profile)),
     rename: (id: Asset['id'], name: string) => run(() => request('/rename', { id, name })),

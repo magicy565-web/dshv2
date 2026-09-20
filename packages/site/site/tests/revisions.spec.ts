@@ -14,7 +14,9 @@ describe('site revision review', () => {
     const second = await service.createRevision(spec, { theme, baseRevisionId: first.id }, 'agent')
     expect(second.changeSet.baseRevisionId).toBe(first.id)
     expect(service.content(spec, second.id)).toMatchObject({ pages: first.changeSet.pages, theme })
-    expect(service.diff(spec, second.id, first.id)).toMatchObject({ added: [], removed: [], changed: [], themeChanged: true, pageOrderChanged: false })
+    expect(service.diff(spec, second.id, first.id)).toMatchObject({
+      added: [], removed: [], changed: [], themeChanged: true, pageOrderChanged: false,
+    })
     expect(service.preview(spec, second.id, 'home', 'https://example.test')).toContain('<h1>Original</h1>')
     const third = await service.createRevision(spec, { pages: [], baseRevisionId: second.id }, 'user')
     expect(service.diff(spec, third.id, second.id).removed).toEqual(first.changeSet.pages)

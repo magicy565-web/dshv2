@@ -32,6 +32,28 @@ const limits = {
   maxTableCells: 1000,
 }
 
+test('commerce routes reuse the existing Host and request publication scopes only for a bound merchant', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-commerce-host-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true }) })
+  harness = await mount(directory, { commerce: { url: 'http://127.0.0.1:3100/', token: 'synthetic-server-bridge-token-only', merchantId: crypto.randomUUID(), timeoutMs: 1000, maxBodyBytes: 10000 }, shopifyClientId: 'fixture-client', shopifyRedirectUri: 'https://example.test/callback' })
+  assert.deepEqual(await (await harness.request('/commerce')).json(), { enabled: true, merchantEnabled: true })
+  assert.ok(harness.routes.has('/commerce/v1/shopify'))
+  assert.ok(harness.routes.has('/api/enterprise/commerce/factory/workspace'))
+  assert.ok(harness.routes.has('/api/enterprise/commerce/merchant/commands'))
+  assert.ok(!harness.routes.has('/api/enterprise/commerce/merchant/integration/open'))
+  const response = await harness.request('/shopify/oauth/start?shop=fixture.myshopify.com')
+  assert.equal(response.status, 302)
+  const scopes = new URL(response.headers.get('location')).searchParams.get('scope').split(',')
+  assert.ok(scopes.includes('write_publications'))
+  assert.ok(scopes.includes('read_publications'))
+  await harness.dispose()
+  harness = await mount(directory, { shopifyClientId: 'fixture-client', shopifyRedirectUri: 'https://example.test/callback' })
+  assert.ok(!harness.routes.has('/commerce/v1/shopify'))
+  const unchanged = await harness.request('/shopify/oauth/start?shop=fixture.myshopify.com')
+  assert.deepEqual(new URL(unchanged.headers.get('location')).searchParams.get('scope').split(','), ['write_products', 'read_products'])
+})
+
 async function mount(directory, overrides = {}) {
   const services = new Context()
   const routes = new Map()
@@ -225,6 +247,23 @@ test('review cannot approve a draft changed while the human is reading it', asyn
   assert.equal((await call('enterprise_geo_status', {})).records[0].status, 'draft')
 })
 
+test('reserves one onboarding conversation across concurrent requests and restarts', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-reservation-'))
+  let harness = await mount(directory)
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const prepare = () => harness.request('/onboarding/prepare', { method: 'POST', body: '{}' })
+  const replies = await Promise.all(Array.from({ length: 4 }, prepare))
+  const projections = await Promise.all(replies.map(response => response.json()))
+  const progress = projections[0].onboarding
+  assert.match(progress.sessionId, /^session-/)
+  assert.equal(progress.revision, 1)
+  for (const projection of projections) assert.deepEqual(projection.onboarding, progress)
+  assert.equal((await harness.request('/onboarding/prepare', { method: 'POST', body: '{"sessionId":"override"}' })).status, 400)
+  await harness.dispose()
+  harness = await mount(directory)
+  assert.deepEqual((await (await prepare()).json()).onboarding, progress)
+})
+
 test('persists conversation binding and rejects stale binding updates', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'enterprise-binding-'))
   let harness = await mount(directory)
@@ -235,6 +274,7 @@ test('persists conversation binding and rejects stale binding updates', async t 
   await harness.dispose()
   harness = await mount(directory)
   assert.equal((await (await harness.request('')).json()).onboarding.sessionId, 'first-chat')
+  assert.equal((await (await harness.request('/onboarding/prepare', { method: 'POST', body: '{}' })).json()).onboarding.sessionId, 'first-chat')
   assert.equal(harness.tools.has('enterprise_save_profile'), false)
   const policy = harness.listeners.get('tools/pre-execute')
   assert.equal((await policy({ name: 'bash', agent: { session: { id: 'first-chat' } } }, async () => ({ kind: 'allow' }))).kind, 'deny')
@@ -442,6 +482,37 @@ test('site tools save a real project, preserve historical versions and reject st
   assert.equal(harness.tools.has('site_create'), false)
 })
 
+test('site tools retain a manufacturing starter across Host restarts and reject an oversized starter without creating a site', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-trade-manufacturing-'))
+  let harness = await mount(directory)
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const execution = { signal: new AbortController().signal }
+  await assert.rejects(harness.tools.get('site_create').execute({ name: 'Too large', template: { id: 'manufacturing', version: '1.0.0', parameters: {} } }, execution), /exceeds the configured/)
+  assert.deepEqual((await harness.tools.get('site_get').execute({}, execution)).items, [])
+  await harness.dispose()
+  harness = await mount(directory, { maxFileBytes: 1048576, maxTotalBytes: 2097152 })
+  const site = await harness.tools.get('site_create').execute({ name: 'Manufacturing sample', template: { id: 'manufacturing', version: '1.0.0', parameters: {} } }, execution)
+  assert.ok(site.currentRevisionId)
+  await harness.dispose()
+  harness = await mount(directory, { maxFileBytes: 1048576, maxTotalBytes: 2097152 })
+  const saved = await harness.tools.get('site_get').execute({ siteId: site.id, revisionId: site.currentRevisionId }, execution)
+  assert.equal(saved.content.project.files.length, 16)
+  assert.equal(saved.revisions.length, 1)
+  assert.deepEqual(saved.jobs, [])
+  assert.deepEqual(saved.hosting.deployments, [])
+  const catalog = await harness.tools.get('site_templates').execute({}, execution)
+  assert.ok(catalog.items.some(item => item.id === 'manufacturing' && item.version === '1.0.0'))
+  const updated = await harness.tools.get('site_template_update').execute({ siteId: site.id, expectedRevisionId: site.currentRevisionId, parameters: { brandName: 'Acme Motion', style: 'precision' } }, execution)
+  const next = await harness.tools.get('site_get').execute({ siteId: site.id, revisionId: updated.revisionId }, execution)
+  assert.match(next.content.project.files.find(file => file.path === 'index.html').content, /ACME MOTION/)
+  assert.match(next.content.project.files.find(file => file.path === 'index.html').content, /theme-precision/)
+  assert.equal(next.revisions.length, 2)
+  await assert.rejects(harness.tools.get('site_template_update').execute({ siteId: site.id, expectedRevisionId: site.currentRevisionId, parameters: {} }, execution), /revision conflict/)
+  const manual = await harness.tools.get('site_update_draft').execute({ siteId: site.id, expectedRevisionId: updated.revisionId, framework: 'static', files: [{ path: 'manual.css', content: 'body{color:red}', encoding: 'utf8' }] }, execution)
+  await assert.rejects(harness.tools.get('site_template_update').execute({ siteId: site.id, expectedRevisionId: manual.revisionId, parameters: { style: 'international' } }, execution), /manual edits/)
+  assert.equal((await harness.tools.get('site_get').execute({ siteId: site.id }, execution)).site.currentRevisionId, manual.revisionId)
+})
+
 async function supplierSetup(harness) {
   await harness.request('/profile', { method: 'POST', body: JSON.stringify(profile) })
   const response = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'catalog.txt' }, body: 'Custom printed viscose fabrics. Historical sample lead time 7 days. Exact GSM and MOQ need confirmation.' })
@@ -471,11 +542,13 @@ test('supplier queries require review, retain unknowns and expiry, and follow co
   const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-session' } } }
   const call = (name, args) => harness.tools.get(name).execute(args, exec)
   const { fileId, fields } = await supplierSetup(harness)
+  fields.supplier.presentation = { focus: 'services', headline: 'Source-backed apparel development', introduction: 'Custom printed viscose fabrics.', sections: ['solution', 'capability'], featuredIds: ['launch'] }
   const id = crypto.randomUUID()
   await call('enterprise_geo_draft', { id, expectedRevision: 0, fields })
   assert.deepEqual((await call('enterprise_supplier_query', {})).records, [])
   await call('enterprise_geo_review', { id, expectedRevision: 1, language: 'zh' })
   assert.match(harness.getReview().questions[0].detail, /Exact weight needs confirmation/)
+  assert.match(harness.getReview().questions[0].detail, /Source-backed apparel development/)
   const query = await call('enterprise_supplier_query', { query: 'viscose' })
   assert.equal(query.records[0].items.length, 2)
   assert.equal(query.records[0].relations[0].type, 'supports')
@@ -497,6 +570,8 @@ test('supplier queries require review, retain unknowns and expiry, and follow co
   assert.equal((await call('enterprise_supplier_query', {})).records[0].id, revisionId)
   await harness.dispose()
   harness = await mount(directory, { maxKnowledgeResults: 1 })
+  const stored = await (await harness.request('/supplier')).json()
+  assert.deepEqual(stored.records.find(record => record.id === revisionId).supplier.presentation, fields.supplier.presentation)
   const first = (await call('enterprise_supplier_query', {})).records[0]
   assert.equal(first.hasMore, true)
   assert.equal(first.relations[0].to, 'launch')
@@ -517,6 +592,8 @@ test('supplier drafts reject fabricated verification, dangling references and mi
   const { fields } = await supplierSetup(harness)
   const exec = { signal: new AbortController().signal, agent: { session: { id: 'supplier-session' } } }
   const invalid = [
+    graph => { graph.presentation = { focus: 'auto', headline: '', introduction: '', sections: [], featuredIds: ['missing'] } },
+    graph => { graph.presentation = { focus: 'projects', headline: '', introduction: '', sections: ['case', 'case'], featuredIds: [] } },
     graph => { graph.nodes[0].claims[0].status = 'VERIFIED' },
     graph => { graph.nodes[0].claims[0].evidenceIds = ['missing'] },
     graph => { graph.nodes[0].claims[0].evidenceIds = [] },

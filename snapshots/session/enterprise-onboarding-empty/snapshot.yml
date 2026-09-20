@@ -1,0 +1,8 @@
+version: 1
+scenario: enterprise-onboarding-empty
+profile: headless
+composition: enterprise-onboarding
+recording: authored
+header:
+  class: enterprise-onboarding
+  pin: true

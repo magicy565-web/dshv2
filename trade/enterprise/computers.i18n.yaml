@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write trade/enterprise/computers.md
-computers.md: 5051efb9b88ad86b31e40f7d3d5b327de2173ec9
-computers.zh.md: 527abaaa70e6061ce216451f99766fd015ae43f1
+computers.md: c9a9586b1f0028fc224bd264805a906b8081904f
+computers.zh.md: d72d675e9dd6a48ab897bc597444b13dc62d20ba

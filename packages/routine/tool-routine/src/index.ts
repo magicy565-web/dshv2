@@ -19,7 +19,13 @@ function schedule(args: Record<string, unknown>): RoutineSchedule {
     if (typeof args.scheduled_at !== 'string') throw new Error('scheduled_at is required for a once Routine')
     return { kind: 'once', scheduledAt: args.scheduled_at }
   }
-  if (kind === 'interval') return { kind: 'interval', everySeconds: Number(args.every_seconds), anchorAt: String(args.anchor_at ?? new Date(Date.now() + 1000).toISOString()) }
+  if (kind === 'interval') {
+    const anchorAt = args.anchor_at === undefined
+      ? new Date(Date.now() + 1000).toISOString()
+      : args.anchor_at
+    if (typeof anchorAt !== 'string') throw new Error('anchor_at must be a string')
+    return { kind: 'interval', everySeconds: Number(args.every_seconds), anchorAt }
+  }
   throw new Error('routine kind must be once or interval')
 }
 function present(title: string, kind: 'read' | 'execute'): { card: 'generic'; title: string; kind: 'read' | 'execute' } { return { card: 'generic', title, kind } }
@@ -35,7 +41,15 @@ export function apply(ctx: Context): void {
       kind: { type: 'string', required: true, enum: ['once', 'interval'] }, scheduled_at: { type: 'string' }, every_seconds: { type: 'integer' }, anchor_at: { type: 'string' },
     },
     output: { schema: routineSchema, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    async execute(args, exec) { const result = await ctx.routine.create({ name: String(args.name), prompt: String(args.prompt), schedule: schedule(args), owner: owner(exec) }); return jsonObject(result.routine) },
+    async execute(args, exec) {
+      const result = await ctx.routine.create({
+        name: args.name,
+        prompt: args.prompt,
+        schedule: schedule(args),
+        owner: owner(exec),
+      })
+      return jsonObject(result.routine)
+    },
     presentCall: () => present('Create Routine', 'execute'),
   }))
   ctx.tools.register(defineTool({
@@ -46,11 +60,16 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'routine_delete', description: 'Stop future executions of a Routine while retaining its run history.', parameters: { id: { type: 'string', required: true } },
     output: { schema: { type: 'object', additionalProperties: true, properties: {} }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    async execute(args, exec) { return { id: String(args.id), deleted: await ctx.routine.delete(RoutineId(String(args.id)), owner(exec)) } }, presentCall: () => present('Delete Routine', 'execute'),
+    async execute(args, exec) {
+      return { id: args.id, deleted: await ctx.routine.delete(RoutineId(args.id), owner(exec)) }
+    }, presentCall: () => present('Delete Routine', 'execute'),
   }))
   ctx.tools.register(defineTool({
     name: 'routine_run_now', description: 'Start one immediate independent Agent run without changing the Routine schedule.', parameters: { id: { type: 'string', required: true } },
     output: { schema: runSchema, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    async execute(args, exec) { const result = await ctx.routine.runNow(RoutineId(String(args.id)), owner(exec)); return jsonObject(result.run) }, presentCall: () => present('Run Routine Now', 'execute'),
+    async execute(args, exec) {
+      const result = await ctx.routine.runNow(RoutineId(args.id), owner(exec))
+      return jsonObject(result.run)
+    }, presentCall: () => present('Run Routine Now', 'execute'),
   }))
 }

@@ -8,6 +8,9 @@ import { parseSiteChangeSet } from '../../../packages/site/site/src/snapshot.ts'
 import type { TenantId } from '../../../packages/shopify/shopify/src/types.ts'
 import { renderStaticPreview } from '../../../packages/site/site/src/preview.ts'
 import type { SiteHosting } from './site-hosting.ts'
+import { createTemplateSite } from './site-starter.ts'
+import { siteTemplateInput, siteTemplateSelection } from './site-template-input.ts'
+import type { SiteTemplateService } from '../../../packages/site/site/src/templates.ts'
 
 const identity = { siteId: z.string().uuid() }
 const revision = { ...identity, revisionId: z.string().uuid() }
@@ -18,9 +21,10 @@ const file = z.object({ path: z.string().min(1), content: z.string(), encoding: 
  * @param tenantId - Identity captured from the trusted host.
  * @param maxBytes - Maximum complete model input bytes for one operation.
  * @param hosting - Optional independent deployment history, without cloud credentials.
+ * @param templates - Optional installed template service; absence disables template creation.
  * @returns Tool definitions; the host owns registration and disposal.
  */
-export function siteTools(sites: SiteService, tenantId: TenantId, maxBytes: number, hosting?: SiteHosting): readonly ToolDefinition[] {
+export function siteTools(sites: SiteService, tenantId: TenantId, maxBytes: number, hosting?: SiteHosting, templates?: SiteTemplateService): readonly ToolDefinition[] {
   const spec = (id: string) => sites.resolve({ tenantId, siteId: SiteId(id) })
   const observed = (id: string, expected: string | null) => {
     const resolved = spec(id)
@@ -37,8 +41,25 @@ export function siteTools(sites: SiteService, tenantId: TenantId, maxBytes: numb
     },
   })
   return [
-    define('site_create', 'Create a website project in this workspace. Shopify is optional. Save source files with site_update_draft, then inspect a preview before requesting publication.',
-      z.object({ name: z.string().trim().min(1).max(160) }).strict(), input => sites.createSite(tenantId, input.name)),
+    define('site_templates', 'List installed website templates, exact versions and parameter schemas. Use an available version with site_create. Template examples and imagery are illustrative; use only approved company facts.',
+      z.object({}).strict(), () => ({ items: templates?.list() ?? [] })),
+    define('site_create', 'Create a website project. Optionally select an exact template id, version and parameters from site_templates to save a complete editable draft. Otherwise save source with site_update_draft. Template inquiry forms prepare unsent drafts unless a real contact channel is configured. Inspect with site_preview before requesting publication.',
+      z.object({ name: z.string().trim().min(1).max(160), template: siteTemplateInput.optional() }).strict(), input => {
+        if (!input.template) return sites.createSite(tenantId, input.name)
+        if (!templates) throw new Error('Site templates are not configured')
+        return createTemplateSite(sites, tenantId, input.name, maxBytes, 'agent', templates, siteTemplateSelection(input.template))
+      }),
+    define('site_template_update', 'Regenerate an unchanged template draft with complete replacement parameters. Read site_get with revisionId first; site.template.json contains its pinned template version and resolved parameters. Manual source changes block regeneration: keep editing source or create a separate site. Supply the observed current revision; a successful update saves a new draft without publishing.',
+      z.object({ ...identity, expectedRevisionId: z.string().uuid(), parameters: z.record(z.string(), z.unknown()) }).strict(), async input => {
+        if (!templates) throw new Error('Site templates are not configured')
+        const resolved = observed(input.siteId, input.expectedRevisionId)
+        const project = sites.content(resolved, SiteRevisionId(input.expectedRevisionId)).project
+        if (!project) throw new Error('The selected revision has no source project')
+        const changeSet = parseSiteChangeSet({ baseRevisionId: input.expectedRevisionId, project: templates.regenerate(project, input.parameters) })
+        if (Buffer.byteLength(JSON.stringify({ changeSet }), 'utf8') > maxBytes) throw new Error('Template project exceeds the configured byte limit')
+        const saved = await sites.createRevision(resolved, changeSet, 'agent')
+        return { siteId: input.siteId, revisionId: saved.id, fileCount: changeSet.project!.files.length }
+      }),
     define('site_get', 'List workspace websites, or read one website, revision history, and publication jobs. Supply revisionId to read its source files. Use only approved public company facts in website content.',
       z.object({ siteId: z.string().uuid().optional(), revisionId: z.string().uuid().optional() }).strict().refine(input => !input.revisionId || Boolean(input.siteId)), input => {
         if (!input.siteId) return { items: sites.list(tenantId) }

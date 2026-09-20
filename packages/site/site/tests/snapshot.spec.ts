@@ -65,7 +65,7 @@ describe('site snapshot persistence', () => {
     expect(() => parseSiteSnapshot({ ...service.snapshot(), sites: [{ ...other, currentRevisionId: revision.id }, snapshot.sites[0]] })).toThrow('reference')
   })
 
-  it.each([null, {}, { sites: [], revisions: [null], jobs: [] }, { sites: [], revisions: [], jobs: [{}] }])('rejects malformed record input %j', value => {
+  it.each([null, {}, { sites: [], revisions: [null], jobs: [] }, { sites: [], revisions: [], jobs: [{}] }])('rejects malformed record input %j', (value) => {
     expect(() => parseSiteSnapshot(value)).toThrow('invalid site snapshot')
   })
 })

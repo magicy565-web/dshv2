@@ -1,0 +1,9 @@
+version: 1
+scenario: site-preview-missing-background
+profile: headless
+composition: sites
+recording: authored
+header:
+  class: sites
+workspace:
+  setup: sites-project

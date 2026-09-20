@@ -1,0 +1,20 @@
+{
+  "explanation": {
+    "category": "Coffee accessories matches preferred categories: Coffee accessories.",
+    "audience": "Targets Coffee enthusiasts; your audience: Coffee enthusiasts.",
+    "price": "Suggested 50 USD; this is a test hypothesis, not a verified selling price.",
+    "margin": "Product-cost-only margin estimate: 80.0%.",
+    "moq": "MOQ 30; your maximum 50.",
+    "brandability": "Private label: true.",
+    "fulfillment": "Supplier shipping: Ships from China; freight quoted separately. Validate compatibility with your fulfillment model.",
+    "content": "Use case: requires confirmation; use supplier-approved product images."
+  },
+  "risks": [
+    "Lead time: 25 days.",
+    "Gross margin excludes freight, duties, platform fees and returns."
+  ],
+  "unknowns": [
+    "Local warehouse availability is unknown.",
+    "Returns handling and landed shipping costs require confirmation."
+  ]
+}

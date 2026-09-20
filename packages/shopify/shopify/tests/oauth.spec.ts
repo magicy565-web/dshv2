@@ -12,10 +12,10 @@ describe('Shopify OAuth helpers', () => {
   it('validates state and HMAC before exchange', async () => {
     const callback = { code: 'c', shop: 'demo.myshopify.com', state: 's', hmac: '' }
     callback.hmac = createHmac('sha256', config.clientSecret).update('code=c&shop=demo.myshopify.com&state=s').digest('hex')
-    expect(() => validateOAuthCallback(callback, 's', config)).not.toThrow()
+    expect(() =>{  validateOAuthCallback(callback, 's', config) }).not.toThrow()
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ access_token: 'token', scope: 'read_products' }), { status: 200 }))
     await expect(exchangeOfflineToken(callback, config, fetcher)).resolves.toMatchObject({ access_token: 'token' })
     expect(fetcher).toHaveBeenCalledTimes(1)
-    expect(() => validateOAuthCallback(callback, 'wrong', config)).toThrow(/state/)
+    expect(() =>{  validateOAuthCallback(callback, 'wrong', config) }).toThrow(/state/)
   })
 })

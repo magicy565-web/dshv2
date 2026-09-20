@@ -8,12 +8,17 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { chromium } from '../../../apps/web/node_modules/playwright/index.mjs'
 import { unzipSync } from 'fflate'
+import { siteStyles } from './site-style-fixtures.mjs'
+import { verifyManufacturing } from './manufacturing-browser.mjs'
+import { verifySiteCreation } from './site-motion-browser.mjs'
+import { verifyCompanySite } from './company-site-browser.mjs'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 
 test('Sites runs saved browser code in a private preview and restores source revisions', { timeout: 120000 }, async t => {
+  await mkdir(join(root, '.trade-runtime'), { recursive: true })
   const directory = await mkdtemp(join(root, '.trade-runtime', 'sites-browser-'))
-  const evidence = join(root, '.trade-runtime', 'sites-evidence')
+  const evidence = await mkdtemp(join(root, '.trade-runtime', 'sites-evidence-'))
   await mkdir(evidence, { recursive: true })
   let child
   let browser
@@ -39,7 +44,7 @@ test('Sites runs saved browser code in a private preview and restores source rev
   } }]))
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD/i.test(key)))
   child = spawn(process.execPath, [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
-    cwd: root, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: directory, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let logs = ''
   child.stderr.on('data', value => { logs += value })
@@ -65,9 +70,13 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.goto(url)
   try { await page.getByRole('button', { name: 'Sites', exact: true }).click() }
   catch (error) { throw new Error(`${error.message}\nBrowser errors: ${errors.join('\n')}\nPage: ${await page.locator('body').innerText()}`) }
-  await page.getByRole('heading', { name: '你的网站，从一句话开始' }).waitFor()
+  await page.getByRole('heading', { name: /创建你的企业网站/ }).waitFor()
+  await verifySiteCreation(page, evidence)
   await page.screenshot({ path: join(evidence, 'sites-empty-desktop.png') })
   const endpoint = new URL('/api/enterprise/sites', url).href
+  await verifyManufacturing(page, context, endpoint, evidence)
+  try { await verifyCompanySite(page, context, endpoint, evidence) }
+  catch (error) { await page.screenshot({ path: join(evidence, 'company-failure.png') }); throw new Error(`${error.message}\nBrowser errors: ${errors.join('\n')}\nPage: ${await page.locator('body').innerText()}`) }
   const created = await context.request.post(endpoint, { data: { name: 'Northwind Studio' } })
   assert.equal(created.status(), 201, await created.text())
   const site = await created.json()
@@ -86,6 +95,9 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.getByRole('button', { name: /Northwind Studio/ }).click()
   const frame = page.frameLocator('iframe[title="预览"]')
   await frame.getByRole('heading', { name: 'Thoughtful objects. A quieter home.' }).waitFor()
+  await frame.locator('body').evaluate(async () => {
+    if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', () => resolve(), { once: true }))
+  })
   await frame.getByRole('button', { name: 'Explore collection' }).click()
   assert.equal(await frame.locator('#count').textContent(), '1')
   assert.equal(await frame.locator('body').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(244, 240, 231)')
@@ -155,6 +167,37 @@ test('Sites runs saved browser code in a private preview and restores source rev
   assert.ok(await page.locator('.site-main').evaluate(element => element.getBoundingClientRect().width) >= 270, await page.locator('.site-workspace').evaluate(element => JSON.stringify({ width: element.getBoundingClientRect().width, parent: element.parentElement.outerHTML.slice(0, 500) })))
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
   await page.setViewportSize({ width: 1440, height: 1000 })
+  for (const style of siteStyles) {
+    const createdStyle = await context.request.post(endpoint, { data: { name: style.name } })
+    assert.equal(createdStyle.status(), 201, await createdStyle.text())
+    const styleSite = await createdStyle.json()
+    const savedStyle = await context.request.post(`${endpoint}?siteId=${styleSite.id}&action=revisions`, { data: { changeSet: { project: { framework: 'static', files: style.files } } } })
+    assert.equal(savedStyle.status(), 201, await savedStyle.text())
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await page.getByRole('button', { name: new RegExp(style.name) }).click()
+    for (const device of ['desktop', 'mobile']) {
+      await page.getByRole('button', { name: device === 'desktop' ? '桌面' : '手机', exact: true }).click()
+      await frame.getByRole('heading', { name: style.heading, exact: true }).waitFor()
+      await frame.locator('#action').click()
+      assert.equal(await frame.locator('#result').textContent(), 'Your preview is interactive.')
+      assert.equal(await frame.locator('body').evaluate(element => getComputedStyle(element).backgroundColor), style.background)
+      await frame.getByAltText('Studio mark').evaluate(image => image.decode())
+      assert.equal(await frame.getByAltText('Studio mark').evaluate(image => image.currentSrc.startsWith('data:image/svg+xml')), true)
+      assert.equal(await frame.locator('html').evaluate(element => element.scrollWidth <= window.innerWidth), true)
+      if (style.slug === 'botanical') assert.match(await frame.locator('.art').evaluate(element => getComputedStyle(element).backgroundImage), /data:image\/svg\+xml/)
+      await page.locator('iframe[title="预览"]').screenshot({ path: join(evidence, `${style.slug}-${device}.png`) })
+    }
+    const previewSource = await page.locator('iframe[title="预览"]').getAttribute('src')
+    await page.evaluate(() => window.postMessage({ type: 'dsh-site-preview-navigation', path: '/wrong-page' }, '*'))
+    await frame.getByRole('link', { name: 'About the studio' }).click()
+    try { await frame.getByRole('heading', { name: 'About this independent studio' }).waitFor() }
+    catch (error) { throw new Error(`${error.message}\nPreview: ${await frame.locator('body').innerText()}\nErrors: ${errors.join('\n')}`) }
+    assert.equal(await frame.locator('body').evaluate(() => { try { void parent.document.body; return false } catch { return true } }), true)
+    assert.equal(new URL(await page.locator('iframe[title="预览"]').getAttribute('src'), url).searchParams.get('revisionId'), new URL(previewSource, url).searchParams.get('revisionId'))
+    await frame.getByRole('link', { name: 'Home', exact: true }).click()
+    await frame.getByRole('heading', { name: style.heading, exact: true }).waitFor()
+  }
+  await page.getByRole('button', { name: /Northwind Studio/ }).click()
   const deployment = { id: crypto.randomUUID(), revisionId: first.id, digest: 'a'.repeat(64), createdAt: new Date().toISOString(), status: 'ready', buildId: 'dpl_reviewed', previewUrl: 'https://preview.vercel.app', published: false }
   const hosted = { siteId: site.id, generation: 1, configured: true, projectId: 'prj_browser', deployments: [deployment], domains: [] }
   const publications = []

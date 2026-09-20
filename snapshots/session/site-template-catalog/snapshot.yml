@@ -1,0 +1,9 @@
+version: 1
+scenario: site-template-catalog
+profile: headless
+composition: sites
+recording: authored
+header:
+  class: sites
+  systemPromptSource: supplier-document-missing
+  toolSchemasSource: supplier-document-missing

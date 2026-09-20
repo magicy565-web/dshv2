@@ -1,0 +1,8 @@
+{
+  "nextStore": "second.myshopify.com",
+  "launchStore": "first.myshopify.com",
+  "publication": "Online Store",
+  "launchStatus": "LIVE",
+  "approvalStatus": "EXECUTED",
+  "remoteWriteStores": ["first.myshopify.com"]
+}

@@ -60,6 +60,29 @@ describe('Vercel Sites provider', () => {
     await expect(provider.inspect(projectId, buildId, signal)).rejects.toThrow('ownership mismatch')
   })
 
+  it('uploads compiled responsive assets and deferred interactions with standalone page links', async () => {
+    const f = fixture()
+    await f.provider.stage(projectId, {
+      id: crypto.randomUUID() as SiteDeploymentId, revisionId: crypto.randomUUID(), digest: '1'.repeat(64),
+      project: { framework: 'static', files: [
+        { path: 'index.html', content: '<link rel="stylesheet" href="print.css" media="print"><script defer src="app.js"></script><main style="background:url(mark.svg#leaf)"><img srcset="mark.svg 1x, mark.svg 2x"><a href="about/">About</a></main>', encoding: 'utf8' },
+        { path: 'print.css', content: 'body{color:black}', encoding: 'utf8' },
+        { path: 'app.js', content: 'document.querySelector("main").dataset.ready = "true"', encoding: 'utf8' },
+        { path: 'mark.svg', content: '<svg xmlns="http://www.w3.org/2000/svg"><circle id="leaf" r="8"/></svg>', encoding: 'utf8' },
+        { path: 'about/index.html', content: '<h1>About</h1><a href="../">Home</a>', encoding: 'utf8' },
+      ] },
+    }, signal)
+    const files = f.requests.find(item => item.path === '/v13/deployments')!.body!.files as { file: string; data: string }[]
+    const html = Buffer.from(files.find(file => file.file === 'public/index.html')!.data, 'base64').toString()
+    expect(html).toContain('<style media="print">')
+    expect(html).toContain('<script defer="" src="data:text/javascript;base64,')
+    expect(html).toContain('srcset="data:image/svg+xml;base64,')
+    expect(html).toContain('#leaf')
+    expect(html).toContain('href="/about/"')
+    expect(html).not.toContain('dsh-site-preview-navigation')
+    expect(Buffer.from(files.find(file => file.file === 'public/about/index.html')!.data, 'base64').toString()).toContain('href="/"')
+  })
+
   it('promotes or rolls back the same build id and resets automatic assignment without another build', async () => {
     const f = fixture()
     await f.provider.promote(projectId, buildId, false, signal)

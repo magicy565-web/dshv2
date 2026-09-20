@@ -1,0 +1,7 @@
+{
+  "extends": ["../../tsconfig.base.json", "./tsconfig.json"],
+  "compilerOptions": { "composite": false, "incremental": false, "declaration": false, "declarationMap": false, "noEmit": true, "isolatedModules": false },
+  "include": ["test/**/*.ts"],
+  "exclude": ["node_modules"],
+  "references": [{ "path": "../../vendor/cordis" }, { "path": "../../vendor/loader" }, { "path": "../../vendor/include" }, { "path": "../../vendor/schemastery" }]
+}

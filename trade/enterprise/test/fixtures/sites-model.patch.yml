@@ -1,0 +1,28 @@
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: session-title-llm
+  disabled: true
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_SITES_MODEL ?? 'deepseek-flash'
+- insert:
+    - id: sites-webserver
+      name: '../../../../packages/host/webserver/lib/index.js'
+      config:
+        host: '127.0.0.1'
+        port: 0
+    - id: sites-connection
+      name: '../../../../packages/client/connection/lib/index.js'
+    - id: trade-enterprise
+      name: '../../lib/index.js'
+      config:
+        directory: !!js dshHomePath('enterprise')
+        maxFileBytes: 1048576
+        maxTotalBytes: 10485760
+        maxExtractedCharacters: 10000
+        knowledgeChunkCharacters: 512
+        maxKnowledgeResults: 5
+        maxDecompressedBytes: 1048576
+        maxArchiveEntries: 100
+        maxTableCells: 1000

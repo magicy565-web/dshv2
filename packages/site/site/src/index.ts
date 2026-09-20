@@ -1,7 +1,7 @@
 /** Service Definition for structured AI site editing and publishing. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {
-  PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteContent, SiteRevisionDiff,
+  PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteContent, SiteRevisionDiff, SiteProject,
 } from './types.ts'
 import { compareSiteContent } from './revisions.ts'
 import { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
@@ -9,6 +9,8 @@ import { buildStaticSite, type SiteArtifact } from './project.ts'
 import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
 
 export * from './types.ts'
+export { SiteTemplateService, SiteTemplateError, SITE_TEMPLATE_RECEIPT } from './templates.ts'
+export type { SiteTemplateId, SiteTemplateValue, SiteTemplateParameters, SiteTemplateDescriptor, SiteTemplateProvider, SiteTemplateRequest, SiteTemplateReceipt } from './template-types.ts'
 export { assertValidSiteChangeSet, validateSiteChangeSet } from './validation.ts'
 export { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
 export { createShopifySitePublisher, renderShopifyThemeFiles } from './shopify-publisher.ts'
@@ -16,7 +18,9 @@ export type { SiteThemeRenderer } from './shopify-publisher.ts'
 export { buildStaticSite, sitePreviewResponse, validateSiteProject } from './project.ts'
 export type { SiteArtifact, SiteArtifactFile } from './project.ts'
 
+/** Authenticated tenant and requested site to authorize. */
 export interface SiteResolveRequest { readonly tenantId: TenantId; readonly siteId: SiteId }
+/** Authorized tenant and site identity for service operations. */
 export interface SiteSpec { readonly tenantId: TenantId; readonly siteId: SiteId }
 
 /** Public files generated from the last successfully published revision. */
@@ -39,21 +43,45 @@ export abstract class SiteService extends Service {
    * @returns The stored site with no draft or production revision.
    */
   abstract createSite(tenantId: TenantId, name: string, connectionId?: StoreConnectionId): Site
-  /** List sites owned by the authorized tenant. */
+  /** Atomically create an independent site and its first source revision.
+   * @param tenantId - Authenticated owner.
+   * @param name - Site display name.
+   * @param project - Complete validated source project.
+   * @param source - Actor creating the initial draft.
+   * @returns Site pointing to its first revision; failed persistence leaves neither record.
+   */
+  abstract createSiteWithProject(tenantId: TenantId, name: string, project: SiteProject, source: SiteRevision['source']): Site
+  /** List sites owned by the authorized tenant.
+   * @param tenantId - Authenticated tenant identity.
+   * @returns Detached site records.
+   */
   abstract list(tenantId: TenantId): readonly Site[]
-  /** Resolve tenant and site identity into an explicit operation spec. */
+  /** Resolve tenant and site identity into an explicit operation spec.
+   * @param request - Authenticated tenant and requested site.
+   * @returns Authorized site identity; rejects unavailable sites.
+   */
   abstract resolve(request: SiteResolveRequest): SiteSpec
-  /** Read a tenant-owned site. */
+  /** Read a tenant-owned site.
+   * @param spec - Authorized tenant and site identity.
+   * @returns A detached site, or undefined when unavailable.
+   */
   abstract get(spec: SiteSpec): Site | undefined
-  /** Read the current or requested revision. */
+  /** Read the current or requested revision.
+   * @param spec - Authorized tenant and site identity.
+   * @param revisionId - Exact revision, or the current draft when omitted.
+   * @returns A detached revision, or undefined when unavailable.
+   */
   abstract getRevision(spec: SiteSpec, revisionId?: SiteRevisionId): SiteRevision | undefined
-  /** List revisions newest first for the tenant-owned site. */
+  /** List revisions newest first for the tenant-owned site.
+   * @param spec - Authorized tenant and site identity.
+   * @returns Detached revision history, or an empty list when unavailable.
+   */
   abstract listRevisions(spec: SiteSpec): readonly SiteRevision[]
   /** Persist a validated change set only against the draft observed by its editor.
    * @param spec - Authorized tenant and site identity.
    * @param changeSet - Edits whose baseRevisionId equals the current draft, or is absent for the first draft.
    * @param source - Origin recorded in version history.
-   * @returns The committed revision; older source versions remain unchanged.
+   * @returns The committed revision; validation and storage failures reject the promise.
    * @throws When the observed draft is stale, including a missing base on a nonempty site.
    */
   abstract createRevision(spec: SiteSpec, changeSet: SiteChangeSet, source: SiteRevision['source']): Promise<SiteRevision>
@@ -136,7 +164,11 @@ export abstract class SiteService extends Service {
     }
     return structuredClone(files)
   }
-  /** Create a rollback revision from an existing revision. */
+  /** Create a rollback revision from an existing revision.
+   * @param spec - Authorized tenant and site identity.
+   * @param revisionId - Historical revision to restore.
+   * @returns A new draft containing the selected revision's complete content.
+   */
   async rollback(spec: SiteSpec, revisionId: SiteRevisionId): Promise<SiteRevision> {
     const revision = this.getRevision(spec, revisionId)
     if (!revision) throw new Error('site revision is not available for this tenant')
@@ -144,9 +176,17 @@ export abstract class SiteService extends Service {
     const content = this.content(spec, revision.id)
     return this.createRevision(spec, { ...content, ...(baseRevisionId === undefined ? {} : { baseRevisionId }) }, 'rollback')
   }
-  /** Queue and execute publication; reject when no publisher is configured. */
+  /** Queue and execute publication; reject when no publisher is configured.
+   * @param spec - Authorized tenant and site identity.
+   * @param revisionId - Saved revision to publish.
+   * @returns The job after publication settles.
+   */
   abstract publish(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob>
-  /** Queue one immutable revision; coalesce a duplicate queued or running request. */
+  /** Queue one immutable revision; coalesce a duplicate queued or running request.
+   * @param spec - Authorized tenant and site identity.
+   * @param revisionId - Saved revision to queue.
+   * @returns The queued or existing job; validation and storage failures reject the promise.
+   */
   abstract queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob>
   /** Execute a queued job, retaining the prior publication on failure.
    * @param spec - Resolved tenant and site.
@@ -155,11 +195,22 @@ export abstract class SiteService extends Service {
    * @returns The committed job status after the side effect settles.
    */
   abstract runPublishJob(spec: SiteSpec, jobId: PublishJobId, publisher?: SitePublisher): Promise<PublishJob>
-  /** Read one publication job by opaque id. */
+  /** Read one publication job by opaque id.
+   * @param spec - Authorized tenant and site identity.
+   * @param jobId - Requested publication job.
+   * @returns A detached job, or undefined when unavailable.
+   */
   abstract getPublishJob(spec: SiteSpec, jobId: PublishJobId): PublishJob | undefined
-  /** List publication jobs newest first for the tenant-owned site. */
+  /** List publication jobs newest first for the tenant-owned site.
+   * @param spec - Authorized tenant and site identity.
+   * @returns Detached jobs, or an empty list when unavailable.
+   */
   abstract listPublishJobs(spec: SiteSpec): readonly PublishJob[]
-  /** Cancel a queued publication without deleting its history. */
+  /** Cancel a queued publication without deleting its history.
+   * @param spec - Authorized tenant and site identity.
+   * @param jobId - Queued or already cancelled job.
+   * @returns The cancelled job; unavailable or running jobs and storage failures reject the promise.
+   */
   abstract cancelPublishJob(spec: SiteSpec, jobId: PublishJobId): Promise<PublishJob>
 }
 

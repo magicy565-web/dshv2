@@ -36,6 +36,11 @@ const node = z.object({
 }).strict()
 /** Agent-authored graphs cannot grant verification; references must resolve within the graph. */
 export const supplierGraph = z.object({
+  presentation: z.object({
+    focus: z.enum(['auto', 'products', 'services', 'projects']),
+    headline: z.string().trim().max(160), introduction: z.string().trim().max(600),
+    sections: z.array(supplierKind).max(3), featuredIds: z.array(nodeId).max(14),
+  }).strict().describe('Revision-owned reading plan. Use source-backed concise copy, up to three home collections and existing node ids for featured entries. Empty sections select automatically; empty copy uses company fields.').optional(),
   nodes: z.array(node).max(100), evidence: z.array(evidence).max(100),
   relations: z.array(z.object({
     from: nodeId, to: nodeId,
@@ -46,6 +51,11 @@ export const supplierGraph = z.object({
   const sources = new Set(graph.evidence.map(item => item.id))
   const invalid = (message: string): void => { ctx.addIssue({ code: 'custom', message }) }
   if (nodes.size !== graph.nodes.length || sources.size !== graph.evidence.length) invalid('Supplier object and evidence ids must be unique')
+  if (graph.presentation) {
+    const { sections, featuredIds } = graph.presentation
+    if (new Set(sections).size !== sections.length || new Set(featuredIds).size !== featuredIds.length) invalid('Presentation sections and featured ids must be unique')
+    if (featuredIds.some(id => !nodes.has(id))) invalid('Presentation references a missing supplier object')
+  }
   for (const item of graph.nodes) {
     if (item.productRecordId && item.kind !== 'offering') invalid('Only an offering can reference a catalog product')
     for (const claim of item.claims) {

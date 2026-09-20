@@ -5,7 +5,6 @@ import { mkdtemp, writeFile, rm, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { once } from 'node:events'
 import { chromium } from '../../../apps/web/node_modules/playwright/index.mjs'
 
@@ -33,11 +32,10 @@ test('native enterprise panel creates a profile and manages assets on desktop an
     maxExtractedCharacters: 1000000, knowledgeChunkCharacters: 1200, maxKnowledgeResults: 8,
     maxDecompressedBytes: 134217728, maxArchiveEntries: 5000, maxTableCells: 250000,
   } }]))
-  const cliArgs = [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade']
-  if (!existsSync(join(root, '.trade-runtime', 'profiles', 'trade', 'package.json'))) cliArgs.push('--from-default-profile', 'web')
+  const cliArgs = [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--from-default-profile', 'web']
   cliArgs.push('--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open')
   child = spawn(process.execPath, cliArgs, {
-    cwd: root, windowsHide: true, env: { ...process.env, DSH_HOME: join(root, '.trade-runtime') }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: directory, windowsHide: true, env: { ...process.env, DSH_HOME: join(directory, 'home') }, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let logs = ''
   child.stderr.on('data', value => { logs += value })
@@ -54,34 +52,45 @@ test('native enterprise panel creates a profile and manages assets on desktop an
   browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : 'chromium', headless: true })
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: 'zh-CN' })
   const page = await context.newPage()
+  await page.addLocatorHandler(page.getByRole('dialog', { name: '内测声明' }), async dialog => { await dialog.getByRole('button', { name: '继续' }).click() })
+  await page.addLocatorHandler(page.getByRole('dialog', { name: '添加一个 API Key 开始使用' }), async dialog => { await dialog.getByRole('button', { name: '稍后配置' }).click() })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(url)
-  await page.waitForTimeout(500)
   const welcome = page.getByRole('dialog', { name: '内测声明' })
   if (await welcome.count()) await welcome.getByRole('button', { name: '继续' }).click()
   const modelOnboarding = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
   if (await modelOnboarding.count()) await modelOnboarding.getByRole('button', { name: '稍后配置' }).click()
-  await page.getByRole('button', { name: '企业空间', exact: true }).click({ timeout: 20000 })
-  await page.getByRole('button', { name: '开始产品 GEO', exact: true }).waitFor()
+  await page.getByRole('heading', { name: '先认识你的企业。', exact: true }).waitFor({ timeout: 20000 })
+  await page.getByRole('button', { name: '开始建档对话', exact: true }).waitFor()
+  assert.equal(await page.getByText(/\/product-geo/).count(), 0)
+  const reserved = await (await context.request.get(new URL('/api/enterprise', url).href)).json()
+  assert.ok(reserved.onboarding.sessionId)
   assert.equal(await page.locator('.ent input:not([type=file]), .ent textarea, .ent select').count(), 0)
-  assert.equal(await page.locator('.ent button').count(), 1)
+  assert.equal(await page.getByRole('button', { name: '建档向导', exact: true }).count(), 0)
+  assert.equal(await page.locator('.sp-setup button').count(), 1)
   await page.screenshot({ path: join(output, 'onboarding-desktop.png') })
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.waitForFunction(() => document.querySelector('.ent').getBoundingClientRect().x <= 57)
   await page.screenshot({ path: join(output, 'onboarding-mobile.png') })
-  await page.getByRole('button', { name: '开始产品 GEO', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: '开始建档对话', exact: true }).click()
   await page.locator('.ent').waitFor({ state: 'hidden' })
   await page.getByText(/\/product-geo/).first().waitFor()
+  const recorded = (await readFile(join(root, 'snapshots/session/enterprise-onboarding-empty/session.v3.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  const opening = recorded.find(event => event.type === 'user/message' && event.data.source.kind === 'user').data.content[0].text
+  await page.getByText(opening.replace('/product-geo ', ''), { exact: false }).first().waitFor()
   await page.screenshot({ path: join(output, 'onboarding-chat.png') })
   const progressBefore = await (await context.request.get(new URL('/api/enterprise', url).href)).json()
   assert.ok(progressBefore.onboarding.sessionId)
+  assert.equal(progressBefore.onboarding.sessionId, reserved.onboarding.sessionId)
   await page.reload()
   await page.getByRole('button', { name: '企业空间', exact: true }).click()
-  await page.getByRole('button', { name: /开始产品 GEO|继续产品 GEO/ }).click()
+  await page.getByRole('button', { name: '继续建档对话', exact: true }).click()
   await page.locator('.ent').waitFor({ state: 'hidden' })
   const progressAfter = await (await context.request.get(new URL('/api/enterprise', url).href)).json()
   assert.equal(progressAfter.onboarding.sessionId, progressBefore.onboarding.sessionId)
   assert.equal(progressAfter.onboarding.revision, progressBefore.onboarding.revision)
+  assert.equal(await page.getByText(/\/product-geo/).count(), 1)
   // Asset coverage seeds its own profile; it does not represent model-driven onboarding.
   const seeded = await context.request.post(new URL('/api/enterprise/profile', url).href, { data: {
     name: '远帆贸易工作室', kind: 'studio', description: '面向海外市场的产品设计与供应服务。', business: '家居用品、产品定制、出口供应',
@@ -154,7 +163,9 @@ test('native enterprise panel creates a profile and manages assets on desktop an
   await page.getByText('公司简介.txt', { exact: true }).waitFor()
   await page.waitForFunction(() => [...document.querySelectorAll('.ent-thumb img')].every(image => image.complete && image.naturalWidth > 0))
   await page.screenshot({ path: join(output, 'assets-desktop.png') })
-  await page.getByRole('tab', { name: 'AI 创作' }).click()
+  await page.getByRole('button', { name: 'Assistant', exact: true }).click()
+  assert.equal(await page.getByRole('tab', { name: 'Assistant', exact: true }).getAttribute('aria-selected'), 'true')
+  await page.getByRole('button', { name: '继续建档对话', exact: true }).waitFor()
   await page.getByRole('button', { name: '生成公司介绍' }).waitFor()
   assert.match(await page.getByText(/份资料可供 AI 检索/).innerText(), /1 \/ 3/)
   await page.screenshot({ path: join(output, 'ai-desktop.png') })

@@ -20,7 +20,7 @@ describe('site change set validation', () => {
       productOrder: ['p' as never, 'p' as never],
     })
     expect(errors).toHaveLength(5)
-    expect(() => assertValidSiteChangeSet({ pages: [{ id: 'x', kind: 'home', path: 'x', title: 'x' }] }))
+    expect(() =>{  assertValidSiteChangeSet({ pages: [{ id: 'x', kind: 'home', path: 'x', title: 'x' }] }) })
       .toThrow(/invalid site change set/)
   })
 

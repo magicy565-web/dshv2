@@ -17,18 +17,27 @@ export class PublicStoreProvider implements ShopifyStoreProvider {
     private readonly collections: CollectionSummary[] = [],
     private readonly themes: ThemeSummary[] = [],
   ) {}
-  async listProducts(): Promise<readonly ProductSummary[]> { return [...this.products] }
-  async listCollections(): Promise<readonly CollectionSummary[]> { return [...this.collections] }
-  async listThemes(): Promise<readonly ThemeSummary[]> { return [...this.themes] }
-  async publish(spec: ShopifyStoreSpec, request: PublishRequest): Promise<PublishResult> {
-    return { connectionId: spec.connectionId, themeId: request.themeId, publishedAt: new Date().toISOString(), version: request.idempotencyKey, filesWritten: Object.keys(request.files).length }
+  listProducts(): Promise<readonly ProductSummary[]> { return Promise.resolve([...this.products]) }
+  listCollections(): Promise<readonly CollectionSummary[]> { return Promise.resolve([...this.collections]) }
+  listThemes(): Promise<readonly ThemeSummary[]> { return Promise.resolve([...this.themes]) }
+  publish(spec: ShopifyStoreSpec, request: PublishRequest): Promise<PublishResult> {
+    return Promise.resolve({
+      connectionId: spec.connectionId, themeId: request.themeId,
+      publishedAt: new Date().toISOString(), version: request.idempotencyKey,
+      filesWritten: Object.keys(request.files).length,
+    })
   }
 }
 
 /** Provider backed by one OAuth connection's token and catalog projections. */
 export class OAuthStoreProvider extends PublicStoreProvider {
-  override readonly mode: 'oauth' = 'oauth'
-  constructor(readonly connection: StoreConnection, products: ProductSummary[] = [], collections: CollectionSummary[] = [], themes: ThemeSummary[] = []) {
+  override readonly mode = 'oauth' as const
+  constructor(
+    readonly connection: StoreConnection,
+    products: ProductSummary[] = [],
+    collections: CollectionSummary[] = [],
+    themes: ThemeSummary[] = [],
+  ) {
     super(products, collections, themes)
   }
 }
@@ -40,7 +49,10 @@ export class InMemoryShopifyStoreService extends ShopifyStoreService {
   constructor(ctx: Context, publicProvider = new PublicStoreProvider()) {
     super(ctx)
     const tenantId = brandString<TenantId>('platform')
-    this.connections.set(PUBLIC_CONNECTION, { id: PUBLIC_CONNECTION, tenantId, mode: 'public', shopDomain: 'public.example.invalid', status: 'connected', grantedScopes: [] })
+    this.connections.set(PUBLIC_CONNECTION, {
+      id: PUBLIC_CONNECTION, tenantId, mode: 'public', shopDomain: 'public.example.invalid',
+      status: 'connected', grantedScopes: [],
+    })
     this.providers.set(PUBLIC_CONNECTION, publicProvider)
   }
   resolve(request: ShopifyResolveRequest): ShopifyStoreSpec {

@@ -1,7 +1,7 @@
 import type { SitePage, SiteRevision } from './types.ts'
 
 function esc(value: string): string {
-  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character)
 }
 
 /** Render a controlled page to standalone public HTML. */

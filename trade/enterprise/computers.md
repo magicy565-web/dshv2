@@ -14,6 +14,8 @@ The **Enterprise computers** sidebar manages existing Grokbot accounts as extern
 ## Table of Contents
 
 - [Connect a workstation](#connect-a-workstation)
+- [Remote desktop connector](#remote-desktop-connector)
+- [Motion preview](#motion-preview)
 - [Worker HTTP connector](#worker-http-connector)
 - [Acceptance and recovery](#acceptance-and-recovery)
 - [Storage and verification](#storage-and-verification)
@@ -29,6 +31,24 @@ The **Enterprise computers** sidebar manages existing Grokbot accounts as extern
 
 All Bots on one provider account may share files and credentials. Independent security domains require independent provider accounts, even across deployments. The Host rejects duplicate account identifiers within this deployment, but cannot detect aliases or prove provider isolation. Instructions and connector approvals cannot restrict actions performed through websites already signed into the computer. Use provider and source-system permissions to enforce those restrictions.
 
+<a id="remote-desktop-connector"></a>
+## Remote desktop connector
+
+Open **Cloud computer console** from the page header to view screenshots supplied by the outbound [Python connector](connector/computer_connector.py). Download it under **Connection setup and diagnostics**, transfer it to the cloud computer, and run `python3 computer_connector.py configure`. Enter the externally reachable DSH HTTPS origin and paste the credential into the hidden terminal prompt. Configuration verifies authentication before writing a private `~/.config/dsh-computer/connection.json` file. HTTPS redirects are refused; plain HTTP is accepted only for loopback development. Publish only `/computer/v1/` through your reverse proxy and keep the workspace login private.
+
+Run `python3 computer_connector.py run` for connection monitoring. For an existing Linux X11 desktop, install [MSS](https://python-mss.readthedocs.io/latest/installation.html) in your Python environment and [xdotool](https://github.com/jordansissel/xdotool), then run `python3 computer_connector.py run --desktop`. The connector must inherit the desktop user's `DISPLAY` and X authorization. It does not create a desktop, install dependencies, configure system services, start Grok Bot or execute natural-language jobs. Wayland input, audio, clipboard synchronization, drag operations and video streaming are not supported. The default heartbeat interval is two seconds; `--interval` accepts 0.5–5 seconds. Keep the process running in a terminal or an operator-managed service.
+
+**View desktop** requests screenshots while the viewer remains open. **Take control** enables clicks, selected keys and explicit text input against the displayed observation. The connector uses MSS for primary-monitor PNG capture and invokes xdotool with separate arguments, never a shell. Input receipts describe the dispatch result, not business success; Unicode typing depends on the X11 environment. No inbound cloud-computer port is opened. This connector authenticates possession of a deployment credential, not ownership of a Grok Bot account.
+
+Heartbeat timestamps are assigned by the Host. A new binding is unpaired; it becomes online only after an authenticated heartbeat and offline after `computerOfflineMs` (default 20000). Screenshots and control state stay in Host memory and are omitted from the fleet response. Frames expire on the next access after viewer demand ends (`computerViewMs`, default 10000); restart and credential rotation discard the relay. `maxComputerFrameBytes` limits decoded PNG bytes (default 4194304), and JSON allowance includes base64 expansion. The browser polls the open viewer every two seconds and fleet/task records every five seconds while visible.
+
+Only one connector instance and one unconfirmed input are allowed per binding. Inputs identify the connector instance and screenshot; stale observations, off-screen coordinates and changed payloads under the pending id are rejected. Dispatch occurs once. Missing receipts become unknown after `computerCommandMs` (default 10000) and block further input. Inspect the native desktop before rotating the credential and reconnecting; a lost response may still mean an action executed. Heartbeat expiry does not stop cloud work or retry tasks. This is a screenshot-based remote console, not a provisioned or independently verified Grok Bot desktop service.
+
+<a id="motion-preview"></a>
+## Motion preview
+
+The default view retains the animated workstation design and task overview. **Motion preview** contains a task-state illustration separate from the remote console. It offers idle, starting, working, human handoff, complete and disconnected illustrations without connecting a computer or changing tasks. **Play sequence** advances through those six states once; selecting a state or leaving the preview stops playback. **Pause motion** freezes decorative animation. The system's reduced-motion preference disables animation and playback while keeping manual state selection available. Worker submission still requires human acceptance before the illustration displays completion.
+
 <a id="worker-http-connector"></a>
 ## Worker HTTP connector
 
@@ -37,6 +57,7 @@ This is a deployment-owned HTTP API, not a Grokbot API or an MCP endpoint. Every
 | Method and path | Behavior |
 |---|---|
 | `GET /computer/v1/manifest` | Returns binding identity, operating instructions and explicitly unverified provider capabilities. |
+| `POST /computer/v1/heartbeat` | Accepts the versioned connector identity, capability report, optional PNG frame and input receipt; returns viewer demand and at most one input. |
 | `POST /computer/v1/claim` | Returns `{job,resumed}`. Null means no work. Repeated claims return the same active assignment; they never authorize replaying actions. |
 | `GET /computer/v1/job?id=<job-id>` | Returns the assigned job and its current approval, if any. |
 | `GET /computer/v1/file?jobId=<job-id>&id=<file-id>` | Reads an explicitly granted input file while the job is running or waiting for a person/approval. |
@@ -62,7 +83,7 @@ Only one nonterminal claimed assignment runs per binding. Claims have no expirin
 
 An unclaimed queued job can be cancelled locally. For a claimed job, **Request stop** records `CANCEL_REQUESTED`; only an authenticated worker's `confirm_stop` after stopping records `CANCELLED`. This is worker attestation, not an independently verified provider stop. Late progress and completion cannot overwrite a pending stop. **Disconnect** revokes the credential, cancels unclaimed jobs and marks other nonterminal jobs `UNKNOWN`; it does not stop the remote computer. Inspect native Grokbot, reconnect with a rotated credential if necessary, request cancellation and obtain the worker's stop acknowledgement.
 
-Automatic Grokbot wake-up, provider Admin API configuration, MCP installation, embedded desktop streaming, multiple worker roles per computer, and DSH model-driven delegation are not implemented by this module. `taskPush`, `remoteStop` and `embeddedDesktop` remain `UNVERIFIED`. The [older Grokbot queue](../../packages/webhook/webhook-grokbot/README.md) is separate and is not mounted by this module.
+Automatic Grokbot wake-up, provider Admin API configuration, MCP installation, multiple worker roles per computer, and DSH model-driven delegation are not implemented by this module. `taskPush` and `remoteStop` remain `UNVERIFIED`; `embeddedDesktop` is `CONNECTOR_REQUIRED`. The [older Grokbot queue](../../packages/webhook/webhook-grokbot/README.md) is separate and is not mounted by this module.
 
 <a id="storage-and-verification"></a>
 ## Storage and verification

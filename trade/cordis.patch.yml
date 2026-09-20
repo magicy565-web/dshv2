@@ -14,6 +14,7 @@
         maxArchiveEntries: 5000
         maxTableCells: 250000
         maxComputerBodyBytes: 1048576
+        commerce: !!js "process.env.DSH_COMMERCE_LINK_SECRET_JSON ? JSON.parse(process.env.DSH_COMMERCE_LINK_SECRET_JSON) : undefined"
         siteHosting: !!js "process.env.DSH_SITES_VERCEL_TOKEN ? { token: process.env.DSH_SITES_VERCEL_TOKEN, teamId: process.env.DSH_SITES_VERCEL_TEAM_ID, requestTimeoutMs: 30000, maxResponseBytes: 2097152, maxDeploymentBytes: 16777216, recoveryPageSize: 100, maxRecoveryPages: 20, maxDomains: 50, maxBuildLogEvents: 100, maxDiagnosticCharacters: 20000 } : undefined"
         externalAgentToken: !!js "process.env.DSH_SUPPLIER_AGENT_TOKEN"
         externalSupplierRecords: !!js "JSON.parse(process.env.DSH_SUPPLIER_RECORDS || '[]')"

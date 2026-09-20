@@ -54,7 +54,7 @@ export function TaskPanel({ tasks, busy, t, command }: { tasks: EnterpriseTask[]
     if (ok) setEditor(null)
     else setFailed(true)
   }
-  return <div role="tabpanel">
+  return <div>
     <div className="ent-toolbar">
       <Button icon={<IconPlusOutline16 />} variant="primary" disabled={busy} onClick={() => { setFailed(false); setEditor({ original: null, id: taskId.parse(crypto.randomUUID()), draft: { ...empty } }) }}>{t('taskCreate')}</Button>
       <Input aria-label={t('taskSearch')} placeholder={t('taskSearch')} value={search} onChange={event => setSearch(event.target.value)} />

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const oxlintCli = fileURLToPath(new URL('../node_modules/oxlint/bin/oxlint', import.meta.url))
 const MAX_CAPTURED_OUTPUT_BYTES = 64 * 1024 * 1024
 const FIX_FLAGS = new Set(['--fix', '--fix-dangerously', '--fix-suggestions'])
+const NESTED_CHECKOUT_IGNORE = '**/development/**'
 
 function isFixInvocation(args: readonly string[]): boolean {
   return args.some(arg => FIX_FLAGS.has(arg))
@@ -32,6 +33,12 @@ export interface OxlintInvocation {
  */
 export function resolveOxlintInvocation(args: readonly string[], env: NodeJS.ProcessEnv): OxlintInvocation {
   const resolvedArgs = [...args]
+  if (
+    args.some(arg => arg === '.' || arg === './')
+    && !args.some(arg => arg === NESTED_CHECKOUT_IGNORE || arg === `--ignore-pattern=${NESTED_CHECKOUT_IGNORE}`)
+  ) {
+    resolvedArgs.push('--ignore-pattern', NESTED_CHECKOUT_IGNORE)
+  }
   if (env.CI === 'true' && !hasOutputFormat(args)) resolvedArgs.push('--format=default')
   const raw = env.DSH_OXLINT_THREADS
   if (raw === undefined || raw === '') return { args: resolvedArgs, env: { ...env } }

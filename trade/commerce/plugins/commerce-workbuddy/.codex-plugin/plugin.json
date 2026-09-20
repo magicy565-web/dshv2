@@ -1,0 +1,18 @@
+{
+  "name": "commerce-workbuddy",
+  "version": "0.1.0",
+  "description": "Draft sourced factory and product records through the Commerce Workspace API.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Commerce Workbuddy",
+    "shortDescription": "Turn factory catalogs into sourced product opportunities.",
+    "longDescription": "Prepare Company and Product Passport drafts, attach evidence, identify missing commercial facts and build opportunities through a scoped API. Human confirmation stays in the workspace.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": "Help me prepare sourced factory and product records from my website and catalog."
+  }
+}

@@ -17,7 +17,10 @@ declare module '@deepseek-ai/dsh-jobs' {
 }
 
 const optionsSchema = z.object({
-  provider: z.string().optional(), model: z.string().optional(), reasoningEffort: z.string().optional(), maxTokens: z.number().optional(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  reasoningEffort: z.string().optional(),
+  maxTokens: z.number().optional(),
 })
 const scheduleSchema = z.union([
   z.object({ kind: z.literal('once'), scheduledAt: z.string() }),
@@ -29,11 +32,20 @@ const routineSchema = z.object({
   status: z.union([z.literal('active'), z.literal('deleted')]), createdAt: z.string(),
 })
 const runSchema = z.object({
-  id: z.string(), routineId: z.string(), source: z.union([z.literal('scheduled'), z.literal('manual')]), scheduledAt: z.string(),
-  status: z.union([z.literal('queued'), z.literal('running'), z.literal('succeeded'), z.literal('failed'), z.literal('interrupted'), z.literal('skipped')]),
-  sessionId: z.string().optional(), jobId: z.string().optional(), startedAt: z.string().optional(), finishedAt: z.string().optional(), error: z.string().optional(), summary: z.string().optional(),
+  id: z.string(), routineId: z.string(), source: z.union([z.literal('scheduled'), z.literal('manual')]),
+  scheduledAt: z.string(),
+  status: z.union([
+    z.literal('queued'), z.literal('running'), z.literal('succeeded'),
+    z.literal('failed'), z.literal('interrupted'), z.literal('skipped'),
+  ]),
+  sessionId: z.string().optional(), jobId: z.string().optional(),
+  startedAt: z.string().optional(), finishedAt: z.string().optional(),
+  error: z.string().optional(), summary: z.string().optional(),
 })
-const stateSchema = z.object({ routines: z.array(routineSchema), runs: z.array(runSchema) })
+const stateSchema = z.object({
+  routines: z.array(routineSchema),
+  runs: z.array(runSchema),
+})
 type State = { readonly routines: RoutineRecord[]; readonly runs: RoutineRunRecord[] }
 
 const routineDomain = defineDomain({
@@ -52,8 +64,7 @@ export function resolveIntervalNext(schedule: RoutineScheduleInterval, now: numb
   return iso(anchor + Math.max(0, count) * step)
 }
 function summaryOf(agent: Agent): string {
-  const events = agent.session.snapshotEvents() as readonly unknown[]
-  const last = [...events].reverse().find(event => typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 'assistant/message')
+  const last = agent.session.deriveMessages().at(-1)
   return last === undefined ? '' : JSON.stringify(last).slice(0, 4000)
 }
 
@@ -73,12 +84,12 @@ export default class LocalRoutineService extends RoutineService {
     this.domainPromise = ctx.storageDomain.open(routineDomain) as unknown as typeof this.domainPromise
     const detachJobs = ctx.jobs.attachController('routine')
     ctx.effect(() => {
-      void this.domainPromise.then(async domain => {
-        this.state = domain.global.get() as State
+      void this.domainPromise.then(async (domain) => {
+        this.state = domain.global.get()
         for (const run of this.state.runs.filter(item => item.status === 'running')) await this.updateRun(run.id, { status: 'interrupted', finishedAt: iso(Date.now()) })
         for (const run of this.state.runs.filter(item => item.status === 'queued')) {
           const routine = this.state.routines.find(item => item.id === run.routineId && item.status === 'active')
-          if (routine !== undefined) this.startRun(routine, run, this.context.agents.get(routine.ownerSessionId as never))
+          if (routine !== undefined) this.startRun(routine, run, this.context.agents.get(routine.ownerSessionId))
         }
         this.scheduleDrive()
       })
@@ -109,7 +120,7 @@ export default class LocalRoutineService extends RoutineService {
   async delete(id: RoutineId, owner: Agent): Promise<boolean> {
     await this.ready(); const found = this.state.routines.find(item => item.id === id && item.ownerSessionId === owner.id && item.status === 'active')
     if (found === undefined) return false
-    await this.save({ routines: this.state.routines.map(item => {
+    await this.save({ routines: this.state.routines.map((item) => {
       if (item.id !== id) return item
       const { nextRunAt: _nextRunAt, ...withoutNext } = item
       return { ...withoutNext, status: 'deleted' as const }
@@ -127,8 +138,19 @@ export default class LocalRoutineService extends RoutineService {
   }
 
   private async ready(): Promise<void> { await this.domainPromise }
-  private async save(next: State): Promise<void> { const domain = await this.domainPromise; await domain.global.set(next); this.state = next }
-  private async updateRun(id: RoutineRunId, patch: Partial<RoutineRunRecord>): Promise<void> { const current = this.state.runs.find(run => run.id === id); if (current === undefined) return; await this.save({ routines: this.state.routines, runs: this.state.runs.map(run => run.id === id ? { ...run, ...patch } : run) }) }
+  private async save(next: State): Promise<void> {
+    const domain = await this.domainPromise
+    await domain.global.set(next)
+    this.state = next
+  }
+  private async updateRun(id: RoutineRunId, patch: Partial<RoutineRunRecord>): Promise<void> {
+    const current = this.state.runs.find(run => run.id === id)
+    if (current === undefined) return
+    await this.save({
+      routines: this.state.routines,
+      runs: this.state.runs.map(run => run.id === id ? { ...run, ...patch } : run),
+    })
+  }
   private async enqueueRun(routine: RoutineRecord, source: 'scheduled' | 'manual', scheduledAt: string): Promise<RoutineRunRecord> {
     const existing = source === 'scheduled' ? this.state.runs.find(run => run.routineId === routine.id && run.scheduledAt === scheduledAt) : undefined
     if (existing !== undefined) return existing
@@ -175,7 +197,7 @@ export default class LocalRoutineService extends RoutineService {
     this.driving = this.drive().finally(() => { this.driving = undefined })
   }
   private async drive(): Promise<void> {
-    await this.ready(); if (this.stop.promise === undefined) return
+    await this.ready()
     const now = Date.now(); let next: number | undefined
     for (const routine of this.state.routines.filter(item => item.status === 'active' && item.nextRunAt !== undefined)) {
       const target = Date.parse(routine.nextRunAt as string)
@@ -184,16 +206,23 @@ export default class LocalRoutineService extends RoutineService {
         if (!busy) {
           const run = await this.enqueueRun(routine, 'scheduled', routine.nextRunAt as string)
           const nextRunAt = routine.schedule.kind === 'once' ? undefined : resolveIntervalNext(routine.schedule, now)
-          await this.save({ routines: this.state.routines.map(item => {
+          await this.save({ routines: this.state.routines.map((item) => {
             if (item.id !== routine.id) return item
-            return nextRunAt === undefined ? (() => { const { nextRunAt: _nextRunAt, ...withoutNext } = item; return withoutNext })() : { ...item, nextRunAt: nextRunAt }
+            return nextRunAt === undefined
+              ? (() => { const { nextRunAt: _nextRunAt, ...withoutNext } = item; return withoutNext })()
+              : { ...item, nextRunAt }
           }), runs: this.state.runs })
-          const owner = this.context.agents.get(routine.ownerSessionId as never)
+          const owner = this.context.agents.get(routine.ownerSessionId)
           this.startRun(routine, run, owner)
         }
       } else if (next === undefined || target < next) next = target
     }
-    if (next !== undefined) this.timer = setTimeout(() => { this.timer = undefined; this.scheduleDrive() }, Math.min(MAX_TIMER_DELAY_MS, Math.max(1, next - Date.now())))
+    if (next !== undefined) {
+      this.timer = setTimeout(() => {
+        this.timer = undefined
+        this.scheduleDrive()
+      }, Math.min(MAX_TIMER_DELAY_MS, Math.max(1, next - Date.now())))
+    }
   }
 }
 

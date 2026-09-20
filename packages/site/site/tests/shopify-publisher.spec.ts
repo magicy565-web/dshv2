@@ -12,6 +12,6 @@ describe('createShopifySitePublisher', () => {
   })
 
   it('rejects an invalid theme before creating a publisher', () => {
-    expect(() => createShopifySitePublisher({ publish: vi.fn() } as never, 'theme' as never, () => ({}))).toThrow('invalid Shopify theme id')
+    expect(() => createShopifySitePublisher({ publish: vi.fn() } as never, 'theme', () => ({}))).toThrow('invalid Shopify theme id')
   })
 })

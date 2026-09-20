@@ -24,7 +24,7 @@ export function OpportunityPanel({ opportunities, busy, t, command, research }: 
   const [selected, setSelected] = useState<EnterpriseOpportunity | null>(null)
   const [archived, setArchived] = useState(false)
   const visible = opportunities.filter(item => item.archived === archived && (status === 'all' || item.status === status) && `${item.buyerName} ${item.country} ${item.targetProduct}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-  return <div role="tabpanel">
+  return <div>
     <div className="ent-toolbar">
       <Button variant="primary" disabled={busy} onClick={research}>{t('opportunityResearch')}</Button>
       <Input icon={<IconSearchOutline16 />} aria-label={t('opportunitySearch')} placeholder={t('opportunitySearch')} value={search} onChange={event => setSearch(event.target.value)} />
@@ -53,4 +53,3 @@ export function OpportunityPanel({ opportunities, busy, t, command, research }: 
     </Modal>
   </div>
 }
-

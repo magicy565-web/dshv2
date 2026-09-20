@@ -17,7 +17,7 @@ export class PersistentSiteService extends InMemorySiteService {
    * @param config - Explicit deployment database location.
    */
   constructor(ctx: Context, config: Config) {
-    if (!config || typeof config.databasePath !== 'string' || !isAbsolute(config.databasePath)) throw new Error('site databasePath must be an absolute filename')
+    if (typeof config.databasePath !== 'string' || !isAbsolute(config.databasePath)) throw new Error('site databasePath must be an absolute filename')
     const storage = new SqliteSiteStateStore(config.databasePath)
     try {
       super(ctx, undefined, storage)
@@ -25,7 +25,7 @@ export class PersistentSiteService extends InMemorySiteService {
       storage.close()
       throw error
     }
-    ctx.effect(() => () => storage.close())
+    ctx.effect(() => () =>{  storage.close() })
   }
 }
 

@@ -67,7 +67,7 @@ describe('site source projects', () => {
     expect(() => buildStaticSite(revisionId, { framework: 'static', files: [] })).toThrow('index.html')
   })
 
-  it.each(['../outside', '/absolute', 'C:/absolute', 'a\\b', 'a//b', 'a/./b', 'a./b', 'a /b', 'NUL.txt', '.env', '.env.production', '.git/config', 'nested/.npmrc', 'a%2fb', 'bad\u0000path'])('rejects unsafe project path %j at the JSON boundary', path => {
+  it.each(['../outside', '/absolute', 'C:/absolute', 'a\\b', 'a//b', 'a/./b', 'a./b', 'a /b', 'NUL.txt', '.env', '.env.production', '.git/config', 'nested/.npmrc', 'a%2fb', 'bad\u0000path'])('rejects unsafe project path %j at the JSON boundary', (path) => {
     expect(() => parseSiteChangeSet({ project: { framework: 'static', files: [{ path, content: '', encoding: 'utf8' }] } })).toThrow()
   })
 

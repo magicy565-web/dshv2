@@ -55,7 +55,13 @@ export class ShopifyGraphqlClient {
 
 /** Verify Shopify OAuth/Webhook HMAC using a timing-safe comparison. */
 export function verifyShopifyHmac(payload: string | URLSearchParams, provided: string, secret: string): boolean {
-  const raw = typeof payload === 'string' ? payload : [...payload.entries()].filter(([key]) => key !== 'hmac' && key !== 'signature').sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join('&')
+  const raw = typeof payload === 'string'
+    ? payload
+    : [...payload.entries()]
+      .filter(([key]) => key !== 'hmac' && key !== 'signature')
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&')
   const expected = createHmac('sha256', secret).update(raw).digest('hex')
   const left = Buffer.from(expected, 'utf8'); const right = Buffer.from(provided, 'utf8')
   return left.length === right.length && timingSafeEqual(left, right)
@@ -66,6 +72,10 @@ function classifyError(status: number, message: string, requestId?: string): Sho
   const kind: ShopifyErrorKind = status === 401 ? 'authentication' : status === 403 ? 'permission' : status === 404 ? 'not-found' : status === 422 || lower.includes('validation') ? 'validation' : status >= 500 ? 'transient' : 'permanent'
   return new ShopifyApiError(kind, message, requestId)
 }
-function parseRetryAfter(value: string | null): number | undefined { if (!value) return undefined; const seconds = Number(value); return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : undefined }
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined
+  const seconds = Number(value)
+  return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : undefined
+}
 function backoff(attempt: number): number { return Math.min(5000, 250 * 2 ** (attempt - 1)) }
 function delay(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }

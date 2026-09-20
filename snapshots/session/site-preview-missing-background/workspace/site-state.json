@@ -1,0 +1,5 @@
+{
+  "sites": [{ "id": "00000000-0000-4000-8000-000000000001", "tenantId": "enterprise", "name": "Botanical studio", "currentRevisionId": "00000000-0000-4000-8000-000000000002" }],
+  "revisions": [{ "id": "00000000-0000-4000-8000-000000000002", "siteId": "00000000-0000-4000-8000-000000000001", "createdAt": "2026-09-20T00:00:00.000Z", "source": "user", "changeSet": { "project": { "framework": "static", "files": [{ "path": "index.html", "encoding": "utf8", "content": "<!doctype html><html><head><title>Botanical studio</title></head><body><h1>Botanical studio</h1><div style=\"background-image:url(missing-leaf.svg)\">Our collection</div></body></html>" }] } } }],
+  "jobs": []
+}

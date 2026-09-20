@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record. Both languages were reviewed together.
+# Content hashes recorded in a source-only workspace; Git blob snapshots remain pending.
+# Re-record in the Git checkout with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-supplier-profile-reading.md
+2026-09-20-supplier-profile-reading.md: 04a90697bc8790845da3e3ce6f122d53e6f8df87
+2026-09-20-supplier-profile-reading.zh.md: 4cc097813f99f2e5b4eba7d8a2cb9ec91b796afa

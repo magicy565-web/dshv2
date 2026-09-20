@@ -34,6 +34,10 @@
       "types": "./lib/types/persistent.d.ts",
       "default": "./lib/types/persistent.js"
     },
+    "./templates": {
+      "types": "./lib/types/templates.d.ts",
+      "default": "./lib/types/templates.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -50,7 +54,8 @@
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-shopify": "workspace:^",
     "esbuild": "0.28.1",
-    "parse5": "8.0.1"
+    "parse5": "8.0.1",
+    "srcset": "5.0.3"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

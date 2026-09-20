@@ -26,6 +26,7 @@
     "build": "node build.mjs",
     "test": "npm run build && npm run test:sites && node --test test/*.test.mjs",
     "test:sites": "vitest run --config vitest.sites.config.ts",
+    "test:sites:model": "node --test test/sites-model.e2e.mjs",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json"
   },
   "dependencies": {

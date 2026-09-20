@@ -1,0 +1,8 @@
+{
+  "factoryRole": "factory",
+  "factoryName": "Embedded Fixture Factory",
+  "merchantRole": "merchant",
+  "merchantCompanyVisible": false,
+  "crossRoleMutationStatus": 403,
+  "browserTokensCreated": 0
+}

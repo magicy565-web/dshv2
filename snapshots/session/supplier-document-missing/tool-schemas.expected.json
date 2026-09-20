@@ -1127,6 +1127,62 @@
                       ],
                       "additionalProperties": false
                     }
+                  },
+                  "presentation": {
+                    "description": "Revision-owned reading plan. Use source-backed concise copy, up to three home collections and existing node ids for featured entries. Empty sections select automatically; empty copy uses company fields.",
+                    "type": "object",
+                    "properties": {
+                      "focus": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "products",
+                          "services",
+                          "projects"
+                        ]
+                      },
+                      "headline": {
+                        "type": "string",
+                        "maxLength": 160
+                      },
+                      "introduction": {
+                        "type": "string",
+                        "maxLength": 600
+                      },
+                      "sections": {
+                        "maxItems": 3,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "offering",
+                            "solution",
+                            "capability",
+                            "value_proposition",
+                            "case",
+                            "partner_program",
+                            "commercial_policy"
+                          ]
+                        }
+                      },
+                      "featuredIds": {
+                        "maxItems": 14,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      }
+                    },
+                    "required": [
+                      "focus",
+                      "headline",
+                      "introduction",
+                      "sections",
+                      "featuredIds"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -2371,7 +2427,7 @@
     },
     {
       "name": "site_create",
-      "description": "Create a website project in this workspace. Shopify is optional. Save source files with site_update_draft, then inspect a preview before requesting publication.",
+      "description": "Create a website project. Optionally select an exact template id, version and parameters from site_templates to save a complete editable draft. Otherwise save source with site_update_draft. Template inquiry forms prepare unsent drafts unless a real contact channel is configured. Inspect with site_preview before requesting publication.",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -2380,6 +2436,32 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 160
+          },
+          "template": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parameters": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "id",
+              "version",
+              "parameters"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -2469,6 +2551,49 @@
           "revisionId",
           "expectedRevisionId"
         ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "site_template_update",
+      "description": "Regenerate an unchanged template draft with complete replacement parameters. Read site_get with revisionId first; site.template.json contains its pinned template version and resolved parameters. Manual source changes block regeneration: keep editing source or create a separate site. Supply the observed current revision; a successful update saves a new draft without publishing.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|{{sessionId}}|{{sessionId}})$"
+          },
+          "expectedRevisionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|{{sessionId}}|{{sessionId}})$"
+          },
+          "parameters": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "siteId",
+          "expectedRevisionId",
+          "parameters"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "site_templates",
+      "description": "List installed website templates, exact versions and parameter schemas. Use an available version with site_create. Template examples and imagery are illustrative; use only approved company facts.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
         "additionalProperties": false
       }
     },

@@ -49,7 +49,7 @@ export class GrokbotTaskService extends Service {
     const domain = await this.domain(); const current = domain.global.get(); const existing = current.tasks.find(task => task.idempotencyKey === request.idempotencyKey)
     if (existing !== undefined) return existing
     const task: GrokbotTask = { taskId: `grokbot-${randomUUID()}`, workflowId: request.workflowId, nodeId: request.nodeId, idempotencyKey: request.idempotencyKey, input: request.input, allowedOrigins: [...(request.allowedOrigins ?? [])], expiresAt: request.expiresAt, callbackToken: randomUUID(), attempt: 0, status: 'queued' }
-    await domain.global.set({ tasks: [...current.tasks, task] });
+    await domain.global.set({ tasks: [...current.tasks, task] })
     if (this.wakeUrl && this.senderKeyEnv) {
       const key = (await this.ctx.credentials.resolve(credentialRef(this.senderKeyEnv)))?.value
       if (key) void fetch(this.wakeUrl, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ action: 'claim' }) }).catch(() => undefined)

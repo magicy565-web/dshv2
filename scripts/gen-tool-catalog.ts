@@ -529,10 +529,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
     writes: ['tool/call', 'tool/result', 'independent Routine Session events through ctx.agents'],
     async mount(ctx) {
       ctx.provide('routine', {
-        create: async () => { throw new Error('tool catalog routine stub') },
+        create: () => Promise.reject(new Error('tool catalog routine stub')),
         list: () => [],
-        delete: async () => false,
-        runNow: async () => { throw new Error('tool catalog routine stub') },
+        delete: () => Promise.resolve(false),
+        runNow: () => Promise.reject(new Error('tool catalog routine stub')),
       })
       await ctx.plugin(ToolRoutine)
     },

@@ -1,5 +1,8 @@
 /** Enterprise layout scoped to its root and portaled dialogs; native primitives retain theme tokens. */
 export const style = `
+.ent-commerce-active .ent-inner > :not(.commerce-surface){display:none}
+.ent-commerce-active .ent-inner{max-width:1200px;width:100%}
+
 .ent,.ent-dialog{color:var(--dsw-alias-label-primary);font-size:14px;letter-spacing:0}
 .ent{height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-layer-1);padding:32px 36px;box-sizing:border-box}
 .ent *,.ent-dialog *{box-sizing:border-box;letter-spacing:0}

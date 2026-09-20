@@ -35,16 +35,26 @@ import { shopifyStore } from './shopify-store.ts'
 import { decryptToken, encryptToken, oauthAuthorize, publishJob, storeConnection, verifyOAuthHmac, verifyOAuthState, verifyWebhookHmac } from './shopify-site.ts'
 import { zh, en } from './locales.ts'
 import { siteEditor } from './site-editor.ts'
+import { companySiteReview } from './site-company-source.ts'
+import { siteLocalConfig } from './site-local.ts'
 import { computerStore, ComputerError } from './computer-store.ts'
 import { computerCommand, computerReport } from './computer-schema.ts'
+import { computerRemote } from './computer-remote.ts'
+import { computerHeartbeat, desktopCommand } from './computer-remote-schema.ts'
 import { vercelConfig, vercelHosting } from './site-vercel.ts'
 import { querySupplier, supplierQuery } from './supplier.ts'
 import type { SupplierGraph } from './supplier.ts'
 import { matchSupplier, supplierMatchInput } from './supplier-matching.ts'
 import { supplierWorkspace, supplierAccess, supplierRevision, procurementRequest, procurementRecord, SupplierError } from './supplier-workspace.ts'
+import { commerceLinkConfig, openCommerce } from './commerce-link.ts'
+import { exportCommerce } from './commerce-export.ts'
+import { commerceShopify } from './commerce-shopify.ts'
+import { dispatchCommerce } from './commerce-dispatch.ts'
+import { embeddedReads, embeddedWrites } from '../../commerce/src/embedded-wire.ts'
 
 /** Deployment limits are supplied by the trade profile overlay. */
 export const Config = z.object({
+  commerce: commerceLinkConfig.optional(),
   directory: z.string().refine(isAbsolute),
   maxFileBytes: z.number().int().positive(),
   maxTotalBytes: z.number().int().positive(),
@@ -56,8 +66,13 @@ export const Config = z.object({
   maxTableCells: z.number().int().positive(),
   maxSupplierBodyBytes: z.number().int().positive().default(1048576),
   maxComputerBodyBytes: z.number().int().positive().default(1048576),
+  computerOfflineMs: z.number().int().min(5000).max(300000).default(20000),
+  computerViewMs: z.number().int().min(5000).max(60000).default(10000),
+  computerCommandMs: z.number().int().min(5000).max(60000).default(10000),
+  maxComputerFrameBytes: z.number().int().min(1024).max(16777216).default(4194304),
   externalAgentToken: z.string().min(32).optional(),
   siteHosting: vercelConfig.optional(),
+  siteLocal: siteLocalConfig.optional(),
   externalSupplierRecords: z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() }).strict()).max(20).default([]),
   externalDocumentIds: z.array(fileId).max(1000).default([]),
   shopDomain: z.string().optional(), accessToken: z.string().optional(), apiVersion: z.string().default('2026-01'), publicBaseUrl: z.string().url().optional(),
@@ -226,6 +241,7 @@ export function apply(ctx: Context, config: Config): void {
       catch (error) { db.exec('ROLLBACK'); db.close(); throw error }
     }
     const computers = computerStore(db, id => Boolean(db.prepare('SELECT id FROM files WHERE id=?').get(id)) && existsSync(join(filesDirectory, id)))
+    const remote = computerRemote({ offlineMs: config.computerOfflineMs, viewMs: config.computerViewMs, commandMs: config.computerCommandMs, maxFrameBytes: config.maxComputerFrameBytes })
     const geo = geoStore(db)
     const supplier = supplierWorkspace(db, { records: config.externalSupplierRecords ?? [], documents: config.externalDocumentIds ?? [] })
     const shopify = shopifyStore(db)
@@ -434,6 +450,25 @@ export function apply(ctx: Context, config: Config): void {
         },
       }))
     }
+    if (config.commerce?.merchantId) {
+      const bridge = commerceShopify({ commerce: config.commerce, apiVersion: config.apiVersion, encryptionKey, shopDomain: config.shopDomain, accessToken: config.accessToken }, shopify)
+      disposers.push(ctx.webServer.register({ kind: 'exact', path: '/commerce/v1/shopify', async handler(req, res) {
+        if (stopping) { res.writeHead(503); res.end(); return }
+        const controller = new AbortController(); controllers.add(controller)
+        const disconnected = () => { if (!res.writableFinished) controller.abort() }
+        res.once('close', disconnected)
+        const task = migration.then(() => {
+          const headers = new Headers()
+          for (const name of ['authorization', 'content-type', 'origin']) if (req.headers[name] !== undefined) headers.set(name, String(req.headers[name]))
+          const init: RequestInit & { duplex?: 'half' } = { method: req.method ?? 'GET', headers, signal: controller.signal }
+          if (!['GET', 'HEAD'].includes(init.method!)) { init.body = Readable.toWeb(req) as ReadableStream<Uint8Array>; init.duplex = 'half' }
+          return bridge(new Request('http://localhost/commerce/v1/shopify', init))
+        }).catch(() => Response.json({ error: 'shopify_request_failed' }, { status: 502 }))
+        pending.add(task)
+        try { const response = await task; if (!res.destroyed) { res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer())) } }
+        finally { pending.delete(task); controllers.delete(controller); res.off('close', disconnected) }
+      } }))
+    }
     const publicProducts = (): Array<{ record: GeoRecord; preview: ReturnType<typeof productPreview> }> => geo.list().filter(record => record.kind === 'product' && record.status === 'confirmed' && record.product?.publication.siteStatus === 'published').map(record => ({ record, preview: productPreview(record, new Date()) })).filter(item => item.preview !== null)
     if (config.externalAgentToken) {
       const tokenHash = createHash('sha256').update(config.externalAgentToken).digest()
@@ -524,12 +559,58 @@ export function apply(ctx: Context, config: Config): void {
     const editor = siteEditor(ctx, config.directory, config.publicBaseUrl, async id => {
       const connection = shopify.findConnection(id)
       if (!connection || connection.status !== 'connected') throw new HttpError(403, 'storeConnectionUnavailable')
-    }, config.maxFileBytes, config.siteHosting ? vercelHosting(config.siteHosting) : undefined)
+    }, config.maxFileBytes, config.siteHosting ? vercelHosting(config.siteHosting) : undefined, () => {
+      const stored = readProfile()
+      return companySiteReview(stored?.submittedAt ? stored.profile : null, geo.list(), 'local', new Date())
+    }, config.siteLocal)
+    disposers.push(ctx.webServer.register({ kind: 'prefix', path: '/sites-live', async handler(req, res) {
+      if (stopping) { res.writeHead(503); res.end(); return }
+      const controller = new AbortController(); controllers.add(controller)
+      const disconnected = () => { if (!res.writableFinished) controller.abort() }
+      res.once('close', disconnected)
+      const task = migration.then(() => {
+        const headers = new Headers()
+        if (req.headers['content-type']) headers.set('content-type', req.headers['content-type'])
+        const init: RequestInit & { duplex?: 'half' } = { method: req.method ?? 'GET', headers, signal: controller.signal }
+        if (!['GET', 'HEAD'].includes(init.method!)) { init.body = Readable.toWeb(req) as ReadableStream<Uint8Array>; init.duplex = 'half' }
+        const base = config.publicBaseUrl ?? `http://${req.headers.host ?? '127.0.0.1'}`
+        return editor.publicFetch(new Request(new URL(req.url ?? '/', base), init))
+      }).catch(() => Response.json({ error: 'Site request failed' }, { status: 500 }))
+      pending.add(task)
+      try { const response = await task; if (!res.destroyed) { res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer())) } }
+      finally { pending.delete(task); controllers.delete(controller); res.off('close', disconnected) }
+    } }))
     for (const tool of editor.tools) disposers.push(ctx.tools.register(tool))
     register('/sites', ['GET', 'POST'], async request => {
       return editor.fetch(request, '/sites')
     })
     register('', ['GET'], async () => Response.json(snapshot(), { headers: { 'cache-control': 'no-store' } }))
+    register('/commerce', ['GET', 'POST'], async request => {
+      if (request.method === 'GET') return Response.json({ enabled: Boolean(config.commerce), merchantEnabled: Boolean(config.commerce?.merchantId) }, { headers: { 'cache-control': 'no-store' } })
+      if (!config.commerce) throw new HttpError(503, 'commerceUnavailable')
+      const { refresh, role, embedded } = z.object({ refresh: z.boolean().default(true), role: z.enum(['factory', 'merchant']).default('factory'), embedded: z.boolean().default(false) }).strict().parse(await jsonBody(request))
+      const controller = new AbortController(); controllers.add(controller)
+      try {
+        const current = snapshot()
+        const url = await openCommerce(config.commerce, refresh && role === 'factory' ? exportCommerce(current.profile, current.geo) : null, AbortSignal.any([controller.signal, request.signal]), fetch, role)
+        return Response.json(embedded ? { ready: true } : { url }, { headers: { 'cache-control': 'no-store' } })
+      } catch (error) {
+        const code = error instanceof Error && ['commerceImportConflict', 'commerceTransferTooLarge', 'commercePublicationPending'].includes(error.message) ? error.message : 'commerceUnavailable'
+        throw new HttpError(503, code)
+      } finally { controllers.delete(controller) }
+    })
+    for (const role of ['factory', 'merchant'] as const) {
+      for (const [method, routes] of [['GET', embeddedReads], ['POST', embeddedWrites]] as const) for (const route of routes) {
+        register(`/commerce/${role}/${route}`, [method], async request => {
+          if (!config.commerce) throw new HttpError(503, 'commerceUnavailable')
+          const controller = new AbortController(); controllers.add(controller)
+          try {
+            const input = { role, route, method, ...(method === 'POST' ? { body: await jsonBody(request, config.commerce.maxBodyBytes) } : {}) }
+            return await dispatchCommerce(config.commerce, input, AbortSignal.any([controller.signal, request.signal]))
+          } finally { controllers.delete(controller) }
+        })
+      }
+    }
     register('/supplier', ['GET'], async () => Response.json({
       records: geo.list().filter(record => record.kind === 'company'),
       products: geo.list().filter(record => record.kind === 'product' && record.status === 'confirmed').map(record => ({ id: record.id, name: record.name })),
@@ -587,7 +668,7 @@ export function apply(ctx: Context, config: Config): void {
       const shopDomain = z.string().regex(/^[a-z0-9.-]+\.myshopify\.com$/).parse(new URL(request.url).searchParams.get('shop'))
       const state = randomUUID()
       oauthStates.set(state, { shopDomain, state, createdAt: Date.now() })
-      const url = oauthAuthorize({ shopDomain, clientId: config.shopifyClientId, redirectUri: config.shopifyRedirectUri, scopes: ['write_products', 'read_products'], state })
+      const url = oauthAuthorize({ shopDomain, clientId: config.shopifyClientId, redirectUri: config.shopifyRedirectUri, scopes: config.commerce?.merchantId ? ['write_products', 'read_products', 'read_publications', 'write_publications'] : ['write_products', 'read_products'], state })
       return new Response(null, { status: 302, headers: { location: url, 'cache-control': 'no-store' } })
     })
     register('/shopify/oauth/callback', ['GET'], async request => {
@@ -671,6 +752,11 @@ export function apply(ctx: Context, config: Config): void {
       geo.bind(binding.sessionId, binding.expectedRevision)
       return Response.json(snapshot(), { headers: { 'cache-control': 'no-store' } })
     })
+    register('/onboarding/prepare', ['POST'], async request => {
+      z.object({}).strict().parse(await jsonBody(request))
+      geo.ensureSession(geoBinding.shape.sessionId.parse(`session-${randomUUID()}`))
+      return Response.json(snapshot(), { headers: { 'cache-control': 'no-store' } })
+    })
     const visible = (value: unknown, agent: boolean): unknown => {
       if (Array.isArray(value)) return value.map(item => visible(item, agent)).filter(item => item !== undefined)
       if (value === null || typeof value !== 'object') return value
@@ -749,6 +835,9 @@ export function apply(ctx: Context, config: Config): void {
       const parsed = profileSchema.parse(await jsonBody(request))
       const profile = profileSchema.parse({ ...parsed, companyEntityId: parsed.companyEntityId ?? companyEntityId.parse(`cmp_${randomUUID().replaceAll('-', '')}`) })
       if (profile.logoId && lookup(profile.logoId).category !== 'image') throw new HttpError(400, 'invalid')
+      for (const id of [profile.media?.coverId, ...Object.values(profile.media?.nodeImages ?? {})]) {
+        if (id && lookup(id).category !== 'image') throw new HttpError(400, 'invalid')
+      }
       writeProfile(profile, new Date().toISOString())
       return Response.json(snapshot())
     })
@@ -764,7 +853,12 @@ export function apply(ctx: Context, config: Config): void {
       db.exec('BEGIN IMMEDIATE')
       try {
         const stored = readProfile()
-        if (stored?.profile.logoId === body.id) writeProfile({ ...stored.profile, logoId: null }, stored.submittedAt)
+        if (stored) {
+          const profile = stored.profile
+          writeProfile({ ...profile, logoId: profile.logoId === body.id ? null : profile.logoId,
+            ...(profile.media ? { media: { coverId: profile.media.coverId === body.id ? null : profile.media.coverId, nodeImages: Object.fromEntries(Object.entries(profile.media.nodeImages).filter(([, id]) => id !== body.id)) } } : {}),
+          }, stored.submittedAt)
+        }
         db.prepare('DELETE FROM knowledge_chunks WHERE file_id=?').run(body.id)
         db.prepare('DELETE FROM files WHERE id=?').run(body.id)
         db.exec('COMMIT')
@@ -823,10 +917,25 @@ export function apply(ctx: Context, config: Config): void {
       return Response.json(snapshot(), { status: 201 })
     })
     register('/computers', ['GET', 'POST'], async request => {
-      const result = request.method === 'POST' ? computers.command(computerCommand.parse(await jsonBody(request, config.maxComputerBodyBytes))) : {}
-      return Response.json({ ...result, bindings: computers.bindings(), jobs: computers.jobs(), files: listFiles().map(({ id, name }) => ({ id, name })), approvals: tasks.list().map(task => governance.approval(task.id)).filter(value => value !== null) }, { headers: { 'cache-control': 'no-store' } })
+      const input = request.method === 'POST' ? computerCommand.parse(await jsonBody(request, config.maxComputerBodyBytes)) : null
+      const result = input ? computers.command(input) : {}
+      if (input?.action === 'rotate' || input?.action === 'disconnect') remote.reset(input.id)
+      const bindings = computers.bindings()
+      return Response.json({ ...result, bindings, connections: bindings.map(item => remote.view(item.id, item.enabled)), jobs: computers.jobs(), files: listFiles().map(({ id, name }) => ({ id, name })), approvals: tasks.list().map(task => governance.approval(task.id)).filter(value => value !== null) }, { headers: { 'cache-control': 'no-store' } })
     })
-    for (const operation of ['manifest', 'claim', 'job', 'report', 'artifact', 'file'] as const) {
+    register('/computer-connector', ['GET'], async () => new Response(readFileSync(new URL('./computer_connector.py', import.meta.url), 'utf8'), { headers: { 'content-type': 'text/x-python; charset=utf-8', 'content-disposition': 'attachment; filename="computer_connector.py"', 'cache-control': 'no-store' } }))
+    register('/computer-desktop', ['GET', 'POST'], async request => {
+      const input = request.method === 'POST' ? desktopCommand.parse(await jsonBody(request, config.maxComputerBodyBytes)) : null
+      const id = input?.computerId ?? z.string().uuid().parse(new URL(request.url).searchParams.get('id'))
+      const binding = computers.bindings().find(item => item.id === id)
+      if (!binding) throw new ComputerError(404, 'missing')
+      if (input) {
+        if (!binding.enabled) throw new ComputerError(409, 'disconnected')
+        remote.enqueue(input)
+      }
+      return Response.json(remote.view(id, binding.enabled, true), { headers: { 'cache-control': 'no-store' } })
+    })
+    for (const operation of ['manifest', 'heartbeat', 'claim', 'job', 'report', 'artifact', 'file'] as const) {
       disposers.push(ctx.webServer.register({
         kind: 'exact', path: `/computer/v1/${operation}`,
         async handler(req, res) {
@@ -847,7 +956,7 @@ export function apply(ctx: Context, config: Config): void {
             if (req.method !== method) return Response.json({ error: 'method' }, { status: 405, headers: { allow: method } })
             const url = new URL(req.url ?? '/', 'http://localhost')
             const json = (value: unknown) => Response.json(value)
-            if (operation === 'manifest') return json({ provider: 'grokbot', computerId: workerId, transport: 'authenticated_http', operations: ['claim', 'job', 'report', 'artifact', 'file'], capabilities: { taskPush: 'UNVERIFIED', remoteStop: 'UNVERIFIED', embeddedDesktop: 'UNVERIFIED' }, instructions: 'Claim work manually or through a verified Routine. A resumed claim is the same assignment, not permission to repeat side effects. Read job state before acting. Stop on CANCEL_REQUESTED and report confirm_stop only after execution has stopped. Submit every required output before submit_result. Approval authorizes only its exact action; it does not grant additional file access. Keep this credential outside prompts and artifacts.' })
+            if (operation === 'manifest') return json({ provider: 'grokbot', computerId: workerId, transport: 'authenticated_http', operations: ['heartbeat', 'claim', 'job', 'report', 'artifact', 'file'], capabilities: { taskPush: 'UNVERIFIED', remoteStop: 'UNVERIFIED', embeddedDesktop: 'CONNECTOR_REQUIRED' }, instructions: 'Claim work manually or through a verified Routine. A resumed claim is the same assignment, not permission to repeat side effects. Read job state before acting. Stop on CANCEL_REQUESTED and report confirm_stop only after execution has stopped. Submit every required output before submit_result. Approval authorizes only its exact action; it does not grant additional file access. Keep this credential outside prompts and artifacts.' })
             if (operation === 'claim') return json(computers.claim(workerId))
             if (operation === 'job') {
               const job = computers.workerJob(z.string().uuid().parse(url.searchParams.get('id')), workerId)
@@ -862,6 +971,11 @@ export function apply(ctx: Context, config: Config): void {
               return new Response(Readable.toWeb(createReadStream(join(filesDirectory, id))) as ReadableStream<Uint8Array>, { headers: { 'content-type': asset.mime, 'content-disposition': 'attachment' } })
             }
             const request = new Request(url, { method: 'POST', headers: { 'x-file-name': String(req.headers['x-file-name'] ?? '') }, body: Readable.toWeb(req) as ReadableStream<Uint8Array>, duplex: 'half', signal: controller.signal } as RequestInit)
+            if (operation === 'heartbeat') {
+              const heartbeat = computerHeartbeat.parse(await jsonBody(request, config.maxComputerBodyBytes + Math.ceil(config.maxComputerFrameBytes * 4 / 3)))
+              computers.authenticate(authorization.slice(7))
+              return json(remote.heartbeat(workerId, heartbeat))
+            }
             if (operation === 'report') {
               const report = computerReport.parse(await jsonBody(request, config.maxComputerBodyBytes))
               computers.authenticate(authorization.slice(7))
