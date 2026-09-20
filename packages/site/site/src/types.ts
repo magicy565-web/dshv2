@@ -1,6 +1,6 @@
 /** Structured site editing vocabulary. This module contains types only. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ShopifyProductId, StoreConnectionId, TenantId } from '@deepseek-ai/dsh-shopify'
+import type { ShopifyProductId, StoreConnectionId, TenantId } from '@deepseek-ai/dsh-shopify/types'
 
 export type SiteId = Branded<'SiteId'>
 export type SiteRevisionId = Branded<'SiteRevisionId'>

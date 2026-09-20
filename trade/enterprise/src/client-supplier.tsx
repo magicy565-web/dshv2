@@ -57,6 +57,7 @@ export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: S
   const [editing, setEditing] = useState(false)
   const [graph, setGraph] = useState<SupplierGraph>({ nodes: [], evidence: [], relations: [] })
   const [editingRecord, setEditingRecord] = useState<Record | null>(null)
+  const [editingId, setEditingId] = useState('')
   const [questions, setQuestions] = useState('')
   const [view, setView] = useState<'objects' | 'match' | 'inbox' | 'access'>('objects')
   const [kind, setKind] = useState('')
@@ -103,13 +104,13 @@ export function SupplierPanel({ profile, t, generate }: { profile: Profile; t: S
     const supplier = supplierGraph.parse(graph)
     const base = editingRecord
     const fields = { kind: 'company', name: base?.name ?? profile.name, description: base?.description || profile.description || profile.name, questions, sections: base?.sections.length ? base.sections : [{ label: t('supplierTitle'), content: profile.description || profile.name, source: t('supplierUser') }], supplier }
-    const result = geoRecord.parse(await api('/supplier/draft', { id: base?.status === 'draft' ? base.id : crypto.randomUUID(), expectedRevision: base?.status === 'draft' ? base.revision : 0, supersedesId: base?.status === 'confirmed' ? base.id : base?.supersedesId ?? null, fields }))
+    const result = geoRecord.parse(await api('/supplier/draft', { id: editingId, expectedRevision: base?.status === 'draft' ? base.revision : 0, supersedesId: base?.status === 'confirmed' ? base.id : base?.supersedesId ?? null, fields }))
     setEditing(false); setEditingRecord(result); await load()
   }) }
   return <div className="supplier-panel" role="tabpanel">
     {error && <p role="alert" className="ent-notice">{t(error)}</p>}
     <section className="supplier-hero"><div><h2>{t('supplierHeadline')}</h2><p>{confirmed?.description || profile.business || t('supplierEmpty')}</p><div className="supplier-pills">{supplierKind.options.map(value => <button key={value} onClick={() => { setView('objects'); setKind(value) }}>{t(kindLabels[value])} · {confirmed?.supplier?.nodes.filter(node => node.kind === value).length ?? 0}</button>)}</div></div>
-    <div className="ent-actions"><Button disabled={busy} onClick={() => { void generate(`/product-geo ${t('supplierBuildPrompt')}`, true) }}>{t('supplierBuild')}</Button><Button disabled={busy} onClick={() => { setEditingRecord(selected ?? null); setQuestions(selected?.questions ?? ''); setGraph(structuredClone(selected?.supplier ?? { nodes: [], evidence: [], relations: [] })); setEditing(true) }}>{t('supplierEdit')}</Button><Button disabled={busy} onClick={() => { void run(load) }}>{t('retry')}</Button></div></section>
+    <div className="ent-actions"><Button disabled={busy} onClick={() => { void generate(`/product-geo ${t('supplierBuildPrompt')}`, true) }}>{t('supplierBuild')}</Button><Button disabled={busy} onClick={() => { setEditingRecord(selected ?? null); setEditingId(selected?.status === 'draft' ? selected.id : crypto.randomUUID()); setQuestions(selected?.questions ?? ''); setGraph(structuredClone(selected?.supplier ?? { nodes: [], evidence: [], relations: [] })); setEditing(true) }}>{t('supplierEdit')}</Button><Button disabled={busy} onClick={() => { void run(load) }}>{t('retry')}</Button></div></section>
     {selected && <p className="ent-muted">{t(selected.status === 'draft' ? 'supplierDraftLabel' : 'supplierConfirmed')} · {t('supplierRevision', { n: selected.revision })} · {t(state?.receipts.some(receipt => receipt.id === selected.id && receipt.revision === selected.revision) ? 'supplierAttested' : 'supplierUnverified')}</p>}
     {!editing && <div className="ent-actions">{draft && <Button disabled={busy} variant="primary" onClick={() => { setAcknowledged(false); setReview({ record: draft, action: 'confirm' }) }}>{t('supplierReview')}</Button>}{confirmed && <><Button disabled={busy} onClick={() => { setAcknowledged(false); setReview({ record: confirmed, action: 'verify' }) }}>{t('supplierVerify')}</Button><Button disabled={busy} onClick={() => setRequest({ id: crypto.randomUUID(), type: 'quote', nodeIds: [], name: '', email: '', message: '' })}>{t('supplierRequest')}</Button></>}</div>}
     {selected?.questions && !editing && <p className="ent-notice supplier-pre">{t('supplierQuestions')}: {selected.questions}</p>}

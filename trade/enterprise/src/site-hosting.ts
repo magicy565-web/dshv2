@@ -3,10 +3,16 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { SiteService, SiteSpec } from '../../../packages/site/site/src/index.ts'
 import { SiteRevisionId } from '../../../packages/site/site/src/types.ts'
 import type { SiteHostingStore } from './site-hosting-store.ts'
-import type { SiteDeploymentId, SiteHostingState } from './site-hosting-schema.ts'
-import { HostingRejected, type SiteHostingProvider } from './site-hosting-provider.ts'
-import type { SiteDomainName } from './site-domains-schema.ts'
-import { assertNever } from '../../../packages/util/values/src/index.ts'
+import type { HostingProjectId, SiteDeployment, SiteDeploymentId, SiteHostingState } from './site-hosting-schema.ts'
+import { HostingRejected, type HostingBuild, type SiteHostingProvider } from './site-hosting-provider.ts'
+import type { SiteDomain, SiteDomainName } from './site-domains-schema.ts'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
+
+function observedDeployment(item: SiteDeployment, build: HostingBuild): SiteDeployment {
+  const { error: _error, buildLog: _log, ...original } = item
+  return { ...original, status: build.status, buildId: build.id, previewUrl: build.previewUrl,
+    ...(build.error === undefined ? {} : { error: build.error }), ...(build.buildLog === undefined ? {} : { buildLog: build.buildLog }) }
+}
 
 /** Structured failures understood by the authenticated Sites HTTP adapter. */
 export class SiteHostingError extends Error {
@@ -68,7 +74,7 @@ export class SiteHosting {
         const projectId = state.projectId ?? await provider.createProject(`dsh-${spec.siteId}`, signal)
         if (!state.projectId) state = this.store.put({ ...state, projectId })
         const build = await provider.stage(projectId, { id: deployment.id, revisionId, project, digest }, signal)
-        return this.store.put({ ...state, deployments: state.deployments.map(item => item.id === deployment.id ? { ...item, status: build.status, buildId: build.id, previewUrl: build.previewUrl } : item) })
+        return this.store.put({ ...state, deployments: state.deployments.map(item => item.id === deployment.id ? observedDeployment(item, build) : item) })
       } catch (error) {
         // A network failure can follow remote acceptance; automatic resubmission could create a second build.
         return this.store.put({ ...state, deployments: state.deployments.map(item => item.id === deployment.id ? { ...item, status: error instanceof HostingRejected ? 'failed' : 'unknown', error: error instanceof HostingRejected ? error.message : 'Cloud submission was not confirmed. Inspect the hosting provider before retrying.' } : item) })
@@ -88,17 +94,7 @@ export class SiteHosting {
       if (!projectId) return state
       const deployments = []
       for (const item of state.deployments) {
-        if (!item.buildId && (item.status === 'unknown' || item.status === 'submitting')) {
-          const recovered = await provider.recover(projectId, item, signal)
-          if (recovered) {
-            const { error: _error, ...original } = item
-            deployments.push({ ...original, status: recovered.status, buildId: recovered.id, previewUrl: recovered.previewUrl })
-          } else deployments.push(item)
-          continue
-        }
-        if (!item.buildId || item.status !== 'building') { deployments.push(item); continue }
-        const build = await provider.inspect(projectId, item.buildId, signal)
-        deployments.push({ ...item, status: build.status, previewUrl: build.previewUrl })
+        deployments.push(await this.inspectDeployment(provider, projectId, item, signal))
       }
       state = { ...state, deployments }
       const production = await provider.production(projectId, signal)
@@ -109,7 +105,12 @@ export class SiteHosting {
         if (state.pendingPromotionId === live.id) delete state.pendingPromotionId
         if (state.pendingAvailability?.deploymentId === live.id && state.pendingAvailability.paused === production.paused) delete state.pendingAvailability
       } else if (state.liveDeploymentId) state = { ...state, availability: 'unknown' }
-      const domains = await provider.domains(projectId, signal)
+      let domains: readonly SiteDomain[]
+      try { domains = await provider.domains(projectId, signal) }
+      catch (error) {
+        this.store.put(state)
+        throw error
+      }
       state = { ...state, domains: [...domains] }
       if (state.pendingDomain) {
         const observed = domains.find(domain => domain.name === state.pendingDomain?.name)
@@ -126,11 +127,41 @@ export class SiteHosting {
     })
   }
 
+  private async inspectDeployment(provider: SiteHostingProvider, projectId: HostingProjectId, item: SiteDeployment, signal: AbortSignal): Promise<SiteDeployment> {
+    if (!item.buildId && (item.status === 'unknown' || item.status === 'submitting')) {
+      const recovered = await provider.recover(projectId, item, signal)
+      if (!recovered) return item
+      return observedDeployment(item, recovered)
+    }
+    if (!item.buildId || (item.status !== 'building' && !(item.status === 'failed' && item.buildLog === undefined))) return item
+    const build = await provider.inspect(projectId, item.buildId, signal)
+    return observedDeployment(item, build)
+  }
+
+  /** Inspect one preview build without requiring production routing or DNS access.
+   * @param spec - Authenticated site identity.
+   * @param deploymentId - Existing submission; this operation never creates a build.
+   * @param signal - Caller/Host cancellation.
+   * @returns Persisted build observations, retaining uncertain submissions for recovery.
+   */
+  async refreshDeployment(spec: SiteSpec, deploymentId: SiteDeploymentId, signal: AbortSignal): Promise<SiteHostingState> {
+    return this.operation(spec, async provider => {
+      signal.throwIfAborted()
+      const state = this.store.get(spec.siteId)
+      const item = state.deployments.find(deployment => deployment.id === deploymentId)
+      if (!item) throw new SiteHostingError(404, 'Preview build not found')
+      if (!state.projectId) return state
+      const observed = await this.inspectDeployment(provider, state.projectId, item, signal)
+      if (observed === item) return state
+      return this.store.put({ ...state, deployments: state.deployments.map(deployment => deployment.id === deploymentId ? observed : deployment) })
+    })
+  }
+
   /** Route production to an already reviewed build; a later refresh confirms completion.
    * @param spec - Authenticated site identity.
    * @param input - Exact build and digest, plus the live deployment observed by the reviewer.
    * @param signal - Caller/Host cancellation.
-   * @returns Pending promotion state. A failed request retains the pending checkpoint.
+   * @returns Pending promotion state, or an explicit provider rejection that permits a new review.
    */
   async publish(spec: SiteSpec, input: { deploymentId: string; digest: string; expectedLiveDeploymentId: string | null }, signal: AbortSignal): Promise<SiteHostingState> {
     return this.operation(spec, async provider => {
@@ -144,8 +175,16 @@ export class SiteHosting {
       if (actual?.buildId !== expected?.buildId) throw new SiteHostingError(409, 'Production changed at the hosting provider; refresh before publishing')
       if (deployment.id === state.liveDeploymentId) return state
       const projectId = state.projectId
+      delete state.operationError
       state = this.store.put({ ...state, pendingPromotionId: deployment.id })
-      await provider.promote(projectId, deployment.buildId, deployment.published, signal)
+      try { await provider.promote(projectId, deployment.buildId, deployment.published, signal) }
+      catch (error) {
+        if (error instanceof HostingRejected) {
+          delete state.pendingPromotionId
+          return this.store.put({ ...state, operationError: error.message })
+        }
+        throw error
+      }
       return state
     })
   }

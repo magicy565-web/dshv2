@@ -71,6 +71,7 @@ export function SiteHostingPanel({ siteId, revisionId, t }: Props) {
         <div><strong>{new Date(deployment.createdAt).toLocaleString()}</strong><span>{t(deployment.status)}</span>{state.liveDeploymentId === deployment.id && <strong>{t(state.availability ?? 'unknown')}</strong>}</div>
         <p className="ent-muted">{t('history')}: <code>{deployment.revisionId}</code></p>
         {deployment.status === 'unknown' && <p>{t('unknownBuild')}</p>}
+        {deployment.status === 'failed' && <details open><summary>{t('buildDiagnostics')}</summary>{deployment.error && <pre className="site-build-log">{deployment.error}</pre>}{deployment.buildLog === undefined ? deployment.buildId && <p>{t('buildLogUnavailable')}</p> : deployment.buildLog && <><p>{t('buildLogTail')}</p><pre className="site-build-log">{deployment.buildLog}</pre></>}</details>}
         <div className="site-toolbar">{deployment.previewUrl && <a href={deployment.previewUrl} target="_blank" rel="noopener noreferrer">{t('openCloudPreview')}</a>}<Button disabled={busy || deployment.status !== 'ready' || locked || state.availability === 'offline' || state.liveDeploymentId === deployment.id} onClick={() => { setAvailabilityReview(undefined); setReview({ deployment, expectedLiveDeploymentId: state.liveDeploymentId ?? null }); setConfirmed(false) }}>{t(deployment.published ? 'rollbackLive' : 'reviewPublish')}</Button></div>
       </article>)}</div>
       {review && <div className="site-publish-review" role="region" aria-label={t('reviewPublish')}>

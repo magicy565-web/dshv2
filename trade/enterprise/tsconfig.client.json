@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.client.json",
-  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "declaration": false, "declarationMap": false, "jsx": "react-jsx" },
+  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "declaration": false, "declarationMap": false, "jsx": "react-jsx", "rootDir": "../.." },
   "include": ["src/client.tsx", "src/locales.ts", "src/schema.ts"],
   "references": [
     { "path": "../../vendor/cordis" },

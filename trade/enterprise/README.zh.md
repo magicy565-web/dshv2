@@ -114,13 +114,23 @@ Sites 侧栏无需企业档案或 Shopify 店铺即可打开持久化网站列�
 
 静态预览将已保存的本地脚本、模块导入、样式和图片打包到无法访问编辑器 DOM 的沙箱中，不在企业 Host 执行项目代码。保存源码或打开本地预览不会发布网站。
 
+对于 Next.js 源码，`site_preview` 向已配置的独立托管提交选定版本，并报告部署标识、摘要和构建状态。重复请求只查询同一构建，不会重新提交或发布。只有就绪的构建返回受保护预览地址。失败的构建保持失败，直到 Agent 保存修正后的版本；未确认的提交保留恢复检查点。预览查询不要求 DNS 或正式路由可用。
+
+失败的云端构建为 Sites 面板和工具结果保留错误摘要及可选的构建日志末尾（`error`、`buildLog`）。Vercel 适配器先检查部署归属，再读取[部署事件](https://vercel.com/docs/rest-api/deployments/get-deployment-events)，移除终端转义序列并遮盖托管控制令牌。`siteHosting.maxBuildLogEvents` 限制获取的事件数；`siteHosting.maxDiagnosticCharacters` 限制摘要和日志文本的总长度。日志可能不完整。日志不可用不会抹去已确认的失败状态，后续刷新会重试读取日志，不重新提交源码。
+
+源码编辑器可将选定的本地资源导入指定项目目录。文件在点击**保存新版本**之前不会保存；替换已有跨平台路径的文件必须勾选替换选项。浏览器按照 Host 请求大小限制检查完整编码后的版本，Host 在持久化前验证路径和文件字节。源码导出下载包含当前编辑器文件的标准 ZIP，包括未保存的修改。预览和云端构建使用选定的已保存版本。在 Sites 面板切换站点、修改选定版本、刷新列表或发起另一段对话之前，需要保存或放弃修改。
+
 可选 Vercel 托管为每个站点创建受保护项目。在提交文件之外设置 `DSH_SITES_VERCEL_TOKEN` 和 `DSH_SITES_VERCEL_TEAM_ID`，然后重启 trade profile。`siteHosting` 配置控制请求超时、响应和上传字节上限，以及恢复查询的分页限制。配置要求同时提供两项凭据；凭据只留在 Host，不进入源码上传或浏览器响应。提供方要求部署地址启用 Vercel 身份验证，并在上传源码前关闭正式域名自动分配。预览访问者使用其 Vercel 团队账号。
 
 Sites 面板构建选定版本、显示构建状态并打开受保护的云端预览。静态 HTML 只从虚拟文件编译，与浏览器资源一起上传到静态输出目录；生成的包脚本不会执行。Next.js 源码在 Vercel 构建，生成的 `vercel.json` 或 `.vercel/` 设置会被拒绝。人工检查云端构建后，必须确认其明确版本和源码摘要才能请求发布。提供方提升或回滚这个现有正式构建，不重新构建当前草稿。云端接受请求后仍保持待确认状态，直到刷新状态核实正式路由。`site-hosting.sqlite` 将部署和待确认操作与源码版本分开保存。丢失的提交响应按已保存的请求标识和摘要查询恢复；未确认的项目创建需要先到 Vercel 核实再重试。
 
-云端构建、版本提升、恢复和请求拒绝具有本地提供方协议测试。真实 Vercel 发布仍需使用实际账号验证。本部署尚未提供自定义域名、下线、Workspace 访问受众与协作者管理、应用密钥及持久应用数据。现有 Shopify-GEO 发布仍是独立的商品投影。
+下线会暂停 Vercel 项目；恢复上线继续使用原有正式构建。两项操作均要求确认观察到的线上部署，并保持待确认状态，直到查询提供方确认可用状态。网站下线时仍保留构建历史和源码版本。
 
-`pnpm exec vitest run --config trade/enterprise/vitest.sites.config.ts` 验证托管持久化和提供方协议。`node --test trade/enterprise/test/sites-browser.test.mjs` 使用隔离 home 启动构建后的 `trade` profile，验证源码预览、编辑、恢复，以及使用模拟云端响应的明确版本发布审核，并将桌面与手机截图写入 `.trade-runtime/sites-evidence/`。模型驱动建站和正式部署仍需额外的记录会话及真实提供方验证。
+自定义域名界面支持向站点托管项目添加、验证和移除域名。添加和移除确认绑定观察到的托管记录版本；并发修改后必须刷新。面板分别显示 Vercel 返回的所有权验证记录和路由记录。DNS 修改由域名所有者完成。平台域名只读，提供方不会从其他项目转移域名。`siteHosting.maxDomains` 限制域名查询数量。尚未确认的外部操作保留持久检查点，供刷新状态时核实。
+
+云端构建、版本提升、可用状态、域名操作和恢复具有本地提供方协议测试。真实 Vercel 发布、DNS 生效及 TLS 就绪仍需使用实际账号验证。本部署尚未提供 Workspace 访问受众与协作者管理、应用密钥及持久应用数据。现有 Shopify-GEO 发布仍是独立的商品投影。
+
+`pnpm exec vitest run --config trade/enterprise/vitest.sites.config.ts` 验证托管持久化和提供方协议。`node --test trade/enterprise/test/sites-browser.test.mjs` 使用隔离 home 启动构建后的 `trade` profile，验证源码预览、编辑、恢复，以及使用模拟云端响应的明确版本发布审核，并将桌面与手机截图写入 `.trade-runtime/sites-evidence/`。脚本化的[缺失预览 Session](../../snapshots/session/site-preview-missing/snapshot.yml) 回放真实 profile 的工具拒绝结果，并固定模型可见工具定义；它不证明真实模型生成能力。模型驱动建站和正式部署仍需真实模型及真实提供方验证。
 
 ## 企业云电脑
 

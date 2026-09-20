@@ -1,5 +1,6 @@
 /** Vercel hosting adapter: protected staged production builds and exact-build promotion. */
 import { z } from 'zod'
+import { stripVTControlCharacters } from 'node:util'
 import { buildStaticSite } from '../../../packages/site/site/src/project.ts'
 import { renderStaticPreview } from '../../../packages/site/site/src/preview.ts'
 import { SiteRevisionId } from '../../../packages/site/site/src/types.ts'
@@ -14,6 +15,7 @@ export const vercelConfig = z.object({
   maxDeploymentBytes: z.number().int().positive(),
   recoveryPageSize: z.number().int().min(1).max(100), maxRecoveryPages: z.number().int().positive(),
   maxDomains: z.number().int().positive(),
+  maxBuildLogEvents: z.number().int().positive(), maxDiagnosticCharacters: z.number().int().positive(),
 }).strict()
 
 const projectSchema = z.object({
@@ -26,6 +28,7 @@ const projectSchema = z.object({
 const buildSchema = z.object({
   id: z.string().min(1), projectId: z.string().min(1), url: z.string().min(1), target: z.literal('production'),
   readyState: z.enum(['QUEUED', 'INITIALIZING', 'BUILDING', 'READY', 'ERROR', 'CANCELED', 'BLOCKED']),
+  errorCode: z.string().nullable().optional(), errorMessage: z.string().nullable().optional(),
 })
 
 function httpsDomain(domain: string): string {
@@ -41,6 +44,7 @@ function httpsDomain(domain: string): string {
  */
 export function vercelHosting(input: z.infer<typeof vercelConfig>, transport: typeof fetch = fetch): SiteHostingProvider {
   const config = vercelConfig.parse(input)
+  const diagnostic = (value: string) => stripVTControlCharacters(value).replaceAll(config.token, '[redacted]')
   const api = async (path: string, signal: AbortSignal, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<unknown> => {
     const url = new URL(path, 'https://api.vercel.com')
     url.searchParams.set('teamId', config.teamId)
@@ -85,9 +89,24 @@ export function vercelHosting(input: z.infer<typeof vercelConfig>, transport: ty
     if ((buildId && build.id !== buildId) || build.projectId !== projectId) throw new Error('Hosting build ownership mismatch')
     const previewUrl = httpsDomain(build.url)
     if (!new URL(previewUrl).hostname.endsWith('.vercel.app')) throw new Error('Unexpected hosting preview domain')
-    return { id: build.id as HostingBuildId, previewUrl, status: build.readyState === 'READY' ? 'ready' : ['ERROR', 'CANCELED', 'BLOCKED'].includes(build.readyState) ? 'failed' : 'building' }
+    const status = build.readyState === 'READY' ? 'ready' : ['ERROR', 'CANCELED', 'BLOCKED'].includes(build.readyState) ? 'failed' : 'building'
+    const error = status === 'failed' ? diagnostic([build.errorCode ?? build.readyState, build.errorMessage].filter(Boolean).join(': ')).slice(0, config.maxDiagnosticCharacters) : undefined
+    return { id: build.id as HostingBuildId, previewUrl, status, ...(error === undefined ? {} : { error }) }
   }
-  const inspect = async (projectId: HostingProjectId, buildId: HostingBuildId, signal: AbortSignal): Promise<HostingBuild> => observation(await api(`/v13/deployments/${encodeURIComponent(buildId)}`, signal), projectId, buildId)
+  const inspect = async (projectId: HostingProjectId, buildId: HostingBuildId, signal: AbortSignal): Promise<HostingBuild> => {
+    const build = observation(await api(`/v13/deployments/${encodeURIComponent(buildId)}`, signal), projectId, buildId)
+    if (build.status !== 'failed') return build
+    const query = new URLSearchParams({ follow: '0', builds: '1', direction: 'backward', limit: String(config.maxBuildLogEvents) })
+    let value: unknown
+    // Log availability must not erase an already confirmed build failure.
+    try { value = await api(`/v3/deployments/${encodeURIComponent(buildId)}/events?${query}`, signal) }
+    catch { return build }
+    const parsed = z.array(z.object({ payload: z.object({ deploymentId: z.string().optional(), text: z.string().optional() }).optional() })).safeParse(value)
+    if (!parsed.success || parsed.data.some(event => event.payload?.deploymentId && event.payload.deploymentId !== buildId)) return build
+    const text = diagnostic(parsed.data.slice(0, config.maxBuildLogEvents).reverse().flatMap(event => event.payload?.text ? [event.payload.text] : []).join('\n'))
+    const remaining = Math.max(0, config.maxDiagnosticCharacters - (build.error?.length ?? 0))
+    return { ...build, buildLog: remaining ? text.slice(-remaining) : '' }
+  }
   return {
     ...vercelDomains(api, readProject, { maxDomains: config.maxDomains, maxPages: config.maxRecoveryPages }),
     async createProject(name, signal) {
@@ -152,10 +171,11 @@ export function vercelHosting(input: z.infer<typeof vercelConfig>, transport: ty
       const project = await protectedProject(projectId, signal)
       if (project.paused) throw new HostingRejected('Resume the website before publishing another build')
       const build = await inspect(projectId, buildId, signal)
-      if (build.status !== 'ready') throw new Error('Only a ready build can be promoted')
+      if (build.status !== 'ready') throw new HostingRejected('Only a ready build can be promoted')
       await api(`/v${rollback ? '1' : '10'}/projects/${encodeURIComponent(projectId)}/${rollback ? 'rollback' : 'promote'}/${encodeURIComponent(buildId)}`, signal, {})
       // Vercel promotion can re-enable automatic domain assignment on the project.
-      await api(`/v9/projects/${encodeURIComponent(projectId)}`, signal, { autoAssignCustomDomains: false }, 'PATCH')
+      try { await api(`/v9/projects/${encodeURIComponent(projectId)}`, signal, { autoAssignCustomDomains: false }, 'PATCH') }
+      catch (error) { throw new Error('Promotion was accepted but project settings were not confirmed', { cause: error }) }
     },
     async production(projectId, signal) {
       const project = await readProject(projectId, signal)

@@ -1,0 +1,21 @@
+
+- insert:
+    - id: sites-webserver
+      name: '../../../packages/host/webserver/src/index.ts'
+      config:
+        host: '127.0.0.1'
+        port: 0
+    - id: sites-connection
+      name: '../../../packages/client/connection/src/index.ts'
+    - id: trade-enterprise
+      name: '../../../trade/enterprise/src/host.ts'
+      config:
+        directory: !!js dshHomePath('enterprise')
+        maxFileBytes: 1048576
+        maxTotalBytes: 2097152
+        maxExtractedCharacters: 10000
+        knowledgeChunkCharacters: 512
+        maxKnowledgeResults: 5
+        maxDecompressedBytes: 1048576
+        maxArchiveEntries: 100
+        maxTableCells: 1000

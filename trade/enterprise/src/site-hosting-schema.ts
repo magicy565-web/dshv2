@@ -25,6 +25,7 @@ export const deploymentSchema = z.object({
   buildId: z.string().min(1).transform(value => value as HostingBuildId).optional(),
   previewUrl: hostingUrl.optional(),
   error: z.string().optional(),
+  buildLog: z.string().optional(),
   published: z.boolean(),
 }).strict()
 

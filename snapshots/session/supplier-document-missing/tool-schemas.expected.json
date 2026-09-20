@@ -2411,7 +2411,7 @@
     },
     {
       "name": "site_preview",
-      "description": "Build a saved static website revision and return its private preview URL and file manifest. This does not publish the website. Next.js requires an isolated framework build provider.",
+      "description": "Preview an exact saved website revision without publishing it. Static projects compile locally and return a private preview URL and file manifest. Next.js projects submit once to the configured isolated cloud builder; repeated calls inspect that same build. Report its returned status accurately: only ready includes a protected preview URL, which requires the hosting team account. Use error and buildLog to diagnose failed builds before saving a corrected revision; unknown submissions need provider reconciliation.",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

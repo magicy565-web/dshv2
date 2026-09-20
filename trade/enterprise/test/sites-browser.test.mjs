@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { chromium } from '../../../apps/web/node_modules/playwright/index.mjs'
+import { unzipSync } from 'fflate'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 
@@ -62,7 +63,8 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.addLocatorHandler(welcome, async () => { await welcome.getByRole('button', { name: '继续' }).click() })
   await page.addLocatorHandler(onboarding, async () => { await onboarding.getByRole('button', { name: '稍后配置' }).click() })
   await page.goto(url)
-  await page.getByRole('button', { name: 'Sites', exact: true }).click()
+  try { await page.getByRole('button', { name: 'Sites', exact: true }).click() }
+  catch (error) { throw new Error(`${error.message}\nBrowser errors: ${errors.join('\n')}\nPage: ${await page.locator('body').innerText()}`) }
   await page.getByRole('heading', { name: '你的网站，从一句话开始' }).waitFor()
   await page.screenshot({ path: join(evidence, 'sites-empty-desktop.png') })
   const endpoint = new URL('/api/enterprise/sites', url).href
@@ -95,6 +97,49 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.getByRole('button', { name: '保存新版本' }).click()
   await page.getByRole('button', { name: '预览', exact: true }).click()
   await frame.getByRole('heading', { name: 'Thoughtful objects. A brighter home.' }).waitFor()
+  await page.getByRole('button', { name: '源码', exact: true }).click()
+  const badge = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="orange"/></svg>')
+  await page.getByRole('textbox', { name: '源码', exact: true }).fill(html.replace('A quieter home.', 'A brighter home.').replace('</main>', '<img src="/assets/badge.svg" alt="Uploaded badge"></main>'))
+  const picker = page.getByLabel('选择资源文件', { exact: true })
+  await picker.setInputFiles({ name: 'badge.svg', mimeType: 'image/svg+xml', buffer: badge })
+  await page.getByRole('status').filter({ hasText: '有未保存的修改' }).waitFor()
+  assert.equal(await page.getByRole('button', { name: '刷新', exact: true }).isDisabled(), true)
+  assert.equal(await page.getByLabel('版本', { exact: true }).isDisabled(), true)
+  await picker.setInputFiles({ name: 'badge.svg', mimeType: 'image/svg+xml', buffer: badge })
+  await page.getByRole('alert').filter({ hasText: '存在同路径文件' }).waitFor()
+  await page.getByRole('checkbox', { name: '替换同路径文件', exact: true }).check()
+  await picker.setInputFiles({ name: 'badge.svg', mimeType: 'image/svg+xml', buffer: badge })
+  await page.getByRole('button', { name: '保存新版本', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: '有未保存的修改' }).waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: '预览', exact: true }).click()
+  await frame.getByAltText('Uploaded badge').waitFor()
+  assert.equal(await frame.getByAltText('Uploaded badge').evaluate(image => image.complete && image.naturalWidth > 0), true)
+  await page.getByRole('button', { name: '源码', exact: true }).click()
+  const downloadEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: '导出源码', exact: true }).click()
+  const download = await downloadEvent
+  assert.equal(download.suggestedFilename(), `${site.id}.zip`)
+  const chunks = []
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk)
+  const archive = unzipSync(Buffer.concat(chunks))
+  assert.deepEqual(Buffer.from(archive['assets/badge.svg']), badge)
+  assert.match(Buffer.from(archive['index.html']).toString(), /Uploaded badge/)
+  await picker.setInputFiles({ name: 'large.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1048577) })
+  await page.getByRole('alert').filter({ hasText: '完整项目超过' }).waitFor()
+  const beforeForbidden = (await (await context.request.get(endpoint)).json()).items.find(item => item.id === site.id).currentRevisionId
+  await page.getByRole('textbox', { name: '资源目录', exact: true }).fill('')
+  await picker.setInputFiles({ name: '.env', mimeType: 'text/plain', buffer: Buffer.from('EXAMPLE_NOT_A_SECRET=fixture') })
+  await page.getByRole('button', { name: '保存新版本', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: '文件路径或项目内容无效' }).waitFor()
+  const afterForbidden = (await (await context.request.get(endpoint)).json()).items.find(item => item.id === site.id).currentRevisionId
+  assert.equal(afterForbidden, beforeForbidden)
+  await page.getByRole('button', { name: '放弃未保存修改', exact: true }).click()
+  await page.getByRole('textbox', { name: '资源目录', exact: true }).fill('assets')
+  await page.getByRole('textbox', { name: '源码', exact: true }).fill('Unsaved text')
+  await page.getByRole('button', { name: '放弃未保存修改', exact: true }).click()
+  assert.match(await page.getByRole('textbox', { name: '源码', exact: true }).inputValue(), /Uploaded badge/)
+  await page.screenshot({ path: join(evidence, 'sites-assets-editor.png'), fullPage: true })
+  await page.getByRole('button', { name: '预览', exact: true }).click()
   await page.getByLabel('版本', { exact: true }).selectOption(first.id)
   await page.getByRole('button', { name: '恢复为草稿' }).click()
   await frame.getByRole('heading', { name: 'Thoughtful objects. A quieter home.' }).waitFor()
@@ -210,6 +255,18 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.getByRole('button', { name: '验证域名', exact: true }).waitFor({ state: 'detached' })
   assert.equal(await page.getByRole('button', { name: '验证域名', exact: true }).count(), 0)
   assert.deepEqual(domainChanges.map(({ input }) => input.operation), ['add', 'verify', 'remove'])
+  const failedBuild = { ...deployment, id: crypto.randomUUID(), buildId: 'dpl_failed', status: 'failed', published: false, error: 'Compilation failed: app/page.tsx' }
+  hosted.deployments.unshift(failedBuild)
+  await page.getByRole('button', { name: '刷新构建状态', exact: true }).click()
+  await page.getByText('构建日志暂不可用，刷新状态后重试。', { exact: true }).waitFor()
+  failedBuild.buildLog = 'app/page.tsx:3: Cannot find module ./catalog\n<img alt="diagnostic" src="missing" onerror="throw new Error(\'injected\')">'
+  await page.getByRole('button', { name: '刷新构建状态', exact: true }).click()
+  const failureCard = page.locator('.site-deployments article').filter({ hasText: 'Compilation failed: app/page.tsx' })
+  await failureCard.getByText('构建日志（末尾片段）', { exact: true }).waitFor()
+  assert.equal(await failureCard.locator('.site-build-log').last().textContent(), failedBuild.buildLog)
+  assert.equal(await failureCard.locator('img').count(), 0)
+  assert.equal(await failureCard.getByRole('button', { name: '检查并发布', exact: true }).isDisabled(), true)
+  await failureCard.screenshot({ path: join(evidence, 'sites-build-diagnostics.png') })
   for (const { input, observedGeneration } of domainChanges) assert.deepEqual(input, { operation: input.operation, name: 'www.example.com', expectedGeneration: observedGeneration, confirmed: true })
   assert.deepEqual(errors, [])
 })

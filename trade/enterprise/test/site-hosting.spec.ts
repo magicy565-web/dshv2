@@ -13,6 +13,9 @@ import { HostingRejected, type SiteHostingProvider } from '../src/site-hosting-p
 import { siteEditor } from '../src/site-editor.ts'
 import { hostingStateSchema } from '../src/site-hosting-schema.ts'
 import { siteDomainName, type SiteDomain } from '../src/site-domains-schema.ts'
+import { siteTools } from '../src/site-tools.ts'
+import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const cleanups: (() => void | Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
@@ -48,6 +51,86 @@ async function fixture(path = ':memory:') {
 }
 
 describe('independent Sites publication', () => {
+  it('previews a Next.js revision through the isolated builder and polls the same deployment without publishing', async () => {
+    const f = await fixture()
+    const next = await f.sites.createRevision(f.spec, { baseRevisionId: f.revision.id, project: { framework: 'nextjs', files: [{ path: 'package.json', content: '{"dependencies":{"next":"fixture"}}', encoding: 'utf8' }] } }, 'agent')
+    const args = { siteId: f.spec.siteId, revisionId: next.id }
+    const execution: ToolExecution = { signal, name: 'site_preview', arguments: args, callId: ToolCallId('preview'), rootCallId: ToolCallId('preview'), token: Symbol('preview') as ToolExecutionToken }
+    const tools = siteTools(f.sites, f.spec.tenantId, 10000, f.hosting)
+    const preview = tools.find(tool => tool.name === 'site_preview')!
+    const submitted = await preview.execute(args, execution)
+    expect(submitted).toMatchObject({ kind: 'cloud', revisionId: next.id, status: 'building' })
+    expect(submitted).not.toHaveProperty('previewUrl')
+    f.provider.domains = async () => { throw new Error('DNS unavailable') }
+    f.provider.production = async () => { throw new Error('Production status unavailable') }
+    const ready = await preview.execute(args, execution)
+    expect(ready).toMatchObject({ status: 'ready', revisionId: next.id, previewUrl: 'https://preview.vercel.app' })
+    expect(await preview.execute(args, execution)).toEqual(ready)
+    expect(f.builds()).toBe(1)
+    expect(f.promotions).toEqual([])
+    expect(f.hosting.get(f.spec).liveDeploymentId).toBeUndefined()
+    const absent = siteTools(f.sites, f.spec.tenantId, 10000).find(tool => tool.name === 'site_preview')!
+    await expect(absent.execute(args, execution)).rejects.toThrow('requires configured independent hosting')
+    await expect(preview.execute({ ...args, tenantId: 'another' }, execution)).rejects.toThrow()
+  })
+
+  it('does not resubmit a failed or uncertain Next.js preview and forwards cancellation to its provider', async () => {
+    const f = await fixture()
+    const next = await f.sites.createRevision(f.spec, { baseRevisionId: f.revision.id, project: { framework: 'nextjs', files: [] } }, 'agent')
+    const args = { siteId: f.spec.siteId, revisionId: next.id }
+    const controller = new AbortController()
+    const execution: ToolExecution = { signal: controller.signal, name: 'site_preview', arguments: args, callId: ToolCallId('preview'), rootCallId: ToolCallId('preview'), token: Symbol('preview') as ToolExecutionToken }
+    const preview = siteTools(f.sites, f.spec.tenantId, 10000, f.hosting).find(tool => tool.name === 'site_preview')!
+    let submissions = 0
+    f.provider.stage = async (_project, _input, received) => {
+      expect(received).toBe(controller.signal)
+      submissions++
+      throw new HostingRejected('Build configuration rejected')
+    }
+    expect(await preview.execute(args, execution)).toMatchObject({ status: 'failed', error: 'Build configuration rejected' })
+    expect(await preview.execute(args, execution)).toMatchObject({ status: 'failed' })
+    expect(submissions).toBe(1)
+    const corrected = await f.sites.createRevision(f.spec, { baseRevisionId: next.id, project: { framework: 'nextjs', files: [{ path: 'package.json', content: '{}', encoding: 'utf8' }] } }, 'agent')
+    f.provider.stage = async (_project, _input, received) => {
+      submissions++
+      controller.abort()
+      received.throwIfAborted()
+      throw new Error('Unreachable')
+    }
+    expect(await preview.execute({ ...args, revisionId: corrected.id }, execution)).toMatchObject({ status: 'unknown' })
+    const recoveredExecution = { ...execution, signal }
+    expect(await preview.execute({ ...args, revisionId: corrected.id }, recoveredExecution)).toMatchObject({ status: 'unknown' })
+    expect(submissions).toBe(2)
+    expect(f.promotions).toEqual([])
+  })
+
+  it('persists failed build diagnostics and retries unavailable logs without resubmitting source', async () => {
+    const f = await fixture()
+    const next = await f.sites.createRevision(f.spec, { baseRevisionId: f.revision.id, project: { framework: 'nextjs', files: [{ path: 'package.json', content: '{}', encoding: 'utf8' }] } }, 'agent')
+    await f.hosting.stage(f.spec, next.id, signal)
+    const id = f.hosting.get(f.spec).deployments[0]!.id
+    let inspections = 0
+    f.provider.inspect = async (_project, buildId) => {
+      inspections++
+      return { id: buildId, status: 'failed', previewUrl: 'https://preview.vercel.app', error: 'Compilation failed', ...(inspections > 1 ? { buildLog: 'app/page.tsx:3: module not found' } : {}) }
+    }
+    const failed = await f.hosting.refreshDeployment(f.spec, id, signal)
+    expect(failed.deployments[0]).toMatchObject({ status: 'failed', error: 'Compilation failed' })
+    expect(failed.deployments[0]?.buildLog).toBeUndefined()
+    const resumed = new SiteHosting(f.sites, f.store, f.provider)
+    const diagnosed = await resumed.refreshDeployment(f.spec, id, signal)
+    expect(diagnosed.deployments[0]?.buildLog).toBe('app/page.tsx:3: module not found')
+    expect(await resumed.refreshDeployment(f.spec, id, signal)).toEqual(diagnosed)
+    expect(inspections).toBe(2)
+    expect(f.builds()).toBe(1)
+    const args = { siteId: f.spec.siteId, revisionId: next.id }
+    const execution: ToolExecution = { signal, name: 'site_preview', arguments: args, callId: ToolCallId('diagnose'), rootCallId: ToolCallId('diagnose'), token: Symbol('diagnose') as ToolExecutionToken }
+    const preview = siteTools(f.sites, f.spec.tenantId, 10000, resumed).find(tool => tool.name === 'site_preview')!
+    const result = await preview.execute(args, execution)
+    expect(result).toMatchObject({ status: 'failed', error: 'Compilation failed', buildLog: 'app/page.tsx:3: module not found' })
+    expect(result).not.toHaveProperty('previewUrl')
+  })
+
   it('stages once, publishes the reviewed build despite later edits, and confirms routing before declaring it live', async () => {
     const f = await fixture()
     const first = await f.hosting.stage(f.spec, f.revision.id, signal)
@@ -87,6 +170,39 @@ describe('independent Sites publication', () => {
     await f.hosting.publish(f.spec, { deploymentId: first.id, digest: first.digest, expectedLiveDeploymentId: second.id }, signal)
     expect(f.promotions).toEqual([{ buildId: first.buildId, rollback: true }])
     expect(f.builds()).toBe(2)
+  })
+
+  it('allows another review after rejected promotion but retains uncertainty after a lost response', async () => {
+    const f = await fixture()
+    await f.hosting.stage(f.spec, f.revision.id, signal)
+    const deployment = (await f.hosting.refresh(f.spec, signal)).deployments[0]!
+    const approval = { deploymentId: deployment.id, digest: deployment.digest, expectedLiveDeploymentId: null }
+    f.provider.promote = async () => { throw new HostingRejected('Access denied') }
+    const rejected = await f.hosting.publish(f.spec, approval, signal)
+    expect(rejected.pendingPromotionId).toBeUndefined()
+    expect(rejected.operationError).toBe('Access denied')
+    f.provider.promote = async () => { f.setLive(deployment.buildId!); throw new Error('response lost') }
+    await expect(f.hosting.publish(f.spec, approval, signal)).rejects.toThrow('response lost')
+    expect(f.hosting.get(f.spec).pendingPromotionId).toBe(deployment.id)
+    expect(f.hosting.get(f.spec).operationError).toBeUndefined()
+    const recovered = await new SiteHosting(f.sites, f.store, f.provider).refresh(f.spec, signal)
+    expect(recovered.liveDeploymentId).toBe(deployment.id)
+    expect(recovered.pendingPromotionId).toBeUndefined()
+  })
+
+  it('persists confirmed production availability even when domain discovery fails', async () => {
+    const f = await fixture()
+    await f.hosting.stage(f.spec, f.revision.id, signal)
+    const deployment = (await f.hosting.refresh(f.spec, signal)).deployments[0]!
+    f.setLive(deployment.buildId!)
+    await f.hosting.refresh(f.spec, signal)
+    await f.hosting.changeAvailability(f.spec, { paused: true, expectedLiveDeploymentId: deployment.id }, signal)
+    f.provider.domains = async () => { throw new Error('DNS service unavailable') }
+    await expect(f.hosting.refresh(f.spec, signal)).rejects.toThrow('DNS service unavailable')
+    const recovered = new SiteHosting(f.sites, f.store, f.provider).get(f.spec)
+    expect(recovered.availability).toBe('offline')
+    expect(recovered.pendingAvailability).toBeUndefined()
+    expect(recovered.liveDeploymentId).toBe(deployment.id)
   })
 
   it('preserves uncertain submissions and checks tenant ownership before remote work', async () => {

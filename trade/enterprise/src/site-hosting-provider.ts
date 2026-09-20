@@ -11,6 +11,10 @@ export interface HostingBuild {
   readonly id: HostingBuildId
   readonly status: 'building' | 'ready' | 'failed'
   readonly previewUrl: string
+  /** Credential-filtered failure summary, when the build failed. */
+  readonly error?: string
+  /** Bounded build-log tail; undefined means unavailable, an empty string means no log text. */
+  readonly buildLog?: string
 }
 
 /** Independent hosting operations; publication never executes application code in the Host. */

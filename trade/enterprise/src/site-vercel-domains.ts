@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { siteDomainName, type SiteDomain } from './site-domains-schema.ts'
 import { HostingRejected, type SiteHostingProvider } from './site-hosting-provider.ts'
 import type { HostingProjectId } from './site-hosting-schema.ts'
-import { assertNever } from '../../../packages/util/values/src/index.ts'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 /** Authenticated request adapter with a fixed Vercel origin and configured response limits. */
 export type VercelRequest = (path: string, signal: AbortSignal, body?: unknown, method?: string) => Promise<unknown>

@@ -1,0 +1,10 @@
+version: 1
+scenario: site-preview-missing
+profile: headless
+composition: sites
+recording: authored
+header:
+  class: sites
+  pin: true
+  systemPromptSource: supplier-document-missing
+  toolSchemasSource: supplier-document-missing

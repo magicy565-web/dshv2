@@ -62,7 +62,7 @@ export function siteEditor(ctx: Context, directory: string, publicOrigin: string
         const siteId = query.get('siteId')
         const action = query.get('action')
         if (route === '/sites' && !siteId && request.method === 'GET') {
-          return Response.json({ items: service.list(tenantId).map(site => {
+          return Response.json({ maxBodyBytes, items: service.list(tenantId).map(site => {
             const state = hosting.get({ tenantId, siteId: site.id })
             const live = state.deployments.find(item => item.id === state.liveDeploymentId)
             return { ...site, ...(live ? { availability: state.availability ?? 'unknown' } : {}), ...(live && state.availability === 'online' ? { liveRevisionId: live.revisionId } : {}) }
