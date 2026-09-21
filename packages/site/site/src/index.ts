@@ -155,7 +155,7 @@ export abstract class SiteService extends Service {
    * @param parentNavigation - Whether links ask the authenticated parent to load another preview page.
    * @returns Isolated browser response; compilation never executes generated code on the Host.
    */
-  renderArtifact(artifact: SiteArtifact, path: string, resolveUrl: (path: string) => string, maxBytes: number, parentNavigation = false): Promise<Response> {
+  renderArtifact(artifact: SiteArtifact, path: string, resolveUrl: (path: string) => string, maxBytes: number, parentNavigation: boolean = false): Promise<Response> {
     return this.rendering.preview(artifact, path, resolveUrl, maxBytes, parentNavigation)
   }
   /** Render a page from resolved draft content; this does not publish it.

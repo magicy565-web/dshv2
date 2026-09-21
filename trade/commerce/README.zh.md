@@ -82,7 +82,7 @@ pnpm run build
 
 合成场景测试业务持久化，并在记录收入后重新打开 SQLite。负向检查覆盖授权、来源有效性、版本、重试和审批恢复。Shopify 测试注入 Provider 或传输替身，不创建真实商品、物流或收入。
 
-`pnpm test` 包含脚本化的官方 MCP 客户端、录制工具目录及数据库重启检查。执行 `pnpm run build` 后，`node --test test/mcp-built.test.mjs` 在系统分配的端口和私有数据库上验证构建后的 `/mcp` 路由。测试独立于工具返回值检查持久化，不需要模型凭据。这些检查不证明真实 Workbuddy 的提取质量或公网部署已经完成。
+`pnpm test` 包含脚本化的官方 MCP 客户端、录制工具目录及数据库重启检查。执行 `pnpm run build` 后，`node --test test/mcp-built.test.mjs` 在系统分配的端口和私有数据库上验证构建后的 `/mcp` 路由。测试独立于工具返回值检查持久化，不需要模型凭据。在仓库根目录运行 `pnpm run test:snapshot -- -t 'replays trade-mcp-empty'`，通过录制的 Harness 会话检查真实 MCP Consumer、发现的工具 Schema 和模型可见上下文。这些检查不证明真实 Workbuddy 的提取质量或公网部署已经完成。
 
 匹配采用私密结构化筛选和明确解释，没有预测评分。毛利估算不含运费、关税、平台费和退货。表现为带标签的 Merchant 报告，缺失浏览/加购数据保持 null；不能直接合计不同币种收入。每个 Launch 生成两个图片简报和八个文本草稿，图片渲染与品牌语气生成尚未完成。其他缺口见方案。停止服务器后备份 SQLite；部署 Token 映射不是生产身份系统。
 
