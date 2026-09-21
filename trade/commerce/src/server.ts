@@ -10,6 +10,7 @@ import { ShopifyGateway, shopifyConfig, shopifyProvider } from './shopify.ts'
 import { id } from './schema.ts'
 import { EnterpriseLink, enterpriseLinkConfig } from './enterprise-link.ts'
 import { EnterpriseStore, enterpriseStoreConfig } from './enterprise-store.ts'
+import { mcpConfigSchema, mcpHandler } from './mcp.ts'
 
 const configSchema = z.object({
   database: z.string().min(1), credentials: credentialsSchema,
@@ -17,13 +18,14 @@ const configSchema = z.object({
   shopify: z.array(shopifyConfig.extend({ merchantId: id })).refine(v => new Set(v.map(x => x.merchantId)).size === v.length),
   enterprise: enterpriseLinkConfig.optional(),
   enterpriseStore: enterpriseStoreConfig.optional(),
+  mcp: mcpConfigSchema.default({ allowedHosts: ['localhost', '127.0.0.1', '[::1]'], allowedOrigins: [] }),
   runtime: z.object({ profile: z.string().min(1), provider: z.string().min(1), model: z.string().min(1), dshHome: z.string().min(1), processCwd: z.string().min(1), requestTimeoutMs: z.number().int().positive(), maxTokens: z.number().int().positive() }).optional(),
 }).strict().refine(c => !c.enterpriseStore || Boolean(c.enterprise?.merchantId), 'Enterprise stores require a bound merchant')
-let application: ReturnType<typeof handler> | undefined
+let application: { http: ReturnType<typeof handler>; mcp: ReturnType<typeof mcpHandler> } | undefined
 /** Resolve deployment configuration at the first request.
  * @returns Initialized handler; invalid configuration fails without opening a public default.
  */
-export function applicationHandler() {
+function applicationHandlers() {
   if (application) return application
   const config = configSchema.parse(JSON.parse(process.env.COMMERCE_CONFIG ?? JSON.stringify({ database: './data/commerce.sqlite', credentials: [], maxBodyBytes: 1048576, matchLimit: 3, shopify: [] })))
   const path = resolve(config.database); mkdirSync(dirname(path), { recursive: true })
@@ -40,6 +42,19 @@ export function applicationHandler() {
     return shopifyProvider(providerConfig)
   })
   const agent = config.runtime ? new AgentGateway(service, new DeepSeekRuntime({ ...config.runtime, env: childEnvironment }), merchantId => shopify.resolve(merchantId).readCatalog()) : undefined
-  application = handler({ service, credentials: config.credentials, maxBodyBytes: config.maxBodyBytes, agent, shopify, enterprise, enterpriseStore })
+  application = {
+    http: handler({ service, credentials: config.credentials, maxBodyBytes: config.maxBodyBytes, agent, shopify, enterprise, enterpriseStore }),
+    mcp: mcpHandler({ service, credentials: config.credentials, maxBodyBytes: config.maxBodyBytes, config: config.mcp }),
+  }
   return application
 }
+
+/** Resolve the authenticated business API.
+ * @returns The process-owned HTTP handler sharing storage with MCP.
+ */
+export function applicationHandler() { return applicationHandlers().http }
+
+/** Resolve supplier intake through MCP.
+ * @returns The process-owned Streamable HTTP handler sharing business authorization and storage.
+ */
+export function applicationMcpHandler() { return applicationHandlers().mcp }

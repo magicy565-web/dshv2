@@ -51,6 +51,7 @@ import {
 } from '@deepseek-ai/dsh-session-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { ocrReceipt } from '../../trade/enterprise/src/ocr-schema.ts'
 import { parseSessionLog, prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -462,14 +463,17 @@ const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
   async 'enterprise-documents'(cwd) {
     const { DatabaseSync } = await import('node:sqlite')
     const content = await readFile(join(cwd, 'catalog.txt'), 'utf8')
+    const recognition = existsSync(join(cwd, 'recognition.json')) ? ocrReceipt.parse(JSON.parse(await readFile(join(cwd, 'recognition.json'), 'utf8'))) : undefined
+    const name = recognition ? 'scan.png' : 'catalog.txt'
+    const original = recognition ? await readFile(join(cwd, name)) : Buffer.from(content)
     const directory = join(cwd, '.dsh', 'enterprise')
     await mkdir(join(directory, 'files'), { recursive: true })
     const id = '00000000-0000-4000-8000-000000000001'
-    await writeFile(join(directory, 'files', id), content)
+    await writeFile(join(directory, 'files', id), original)
     const db = new DatabaseSync(join(directory, 'enterprise.sqlite'))
     try {
       db.exec('CREATE TABLE profile (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL, submitted_at TEXT); CREATE TABLE files (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE knowledge_chunks (file_id TEXT NOT NULL, ordinal INTEGER NOT NULL, content TEXT NOT NULL, PRIMARY KEY(file_id, ordinal)); PRAGMA user_version=2;')
-      db.prepare('INSERT INTO files VALUES (?, ?)').run(id, JSON.stringify({ id, name: 'catalog.txt', mime: 'text/plain', category: 'document', knowledgeStatus: 'ready', size: Buffer.byteLength(content), createdAt: '2026-09-21T00:00:00.000Z' }))
+      db.prepare('INSERT INTO files VALUES (?, ?)').run(id, JSON.stringify({ id, name, mime: recognition ? 'image/png' : 'text/plain', category: recognition ? 'image' : 'document', knowledgeStatus: 'ready', size: original.length, createdAt: '2026-09-21T00:00:00.000Z', ...(recognition ? { ocr: recognition } : {}) }))
       db.prepare('INSERT INTO knowledge_chunks VALUES (?, 1, ?)').run(id, content)
     } finally { db.close() }
   },
@@ -992,7 +996,9 @@ describe('headless recorded-session snapshots', () => {
               try {
                 const rows = db.prepare('SELECT data FROM enterprise_geo').all()
                 expect(rows).toHaveLength(1)
-                expect(JSON.parse(String(rows[0]!.data))).toMatchObject({ name: 'AX-1 connector', status: 'draft', assetIds: ['00000000-0000-4000-8000-000000000001'], sections: [{ label: 'Material', content: 'Steel', source: '[资料: catalog.txt#片段1]' }] })
+                const citation = scenario.name === 'enterprise-ocr-draft' ? '[资料: scan.png#OCR第1页#片段1]' : '[资料: catalog.txt#片段1]'
+                expect(JSON.parse(String(rows[0]!.data))).toMatchObject({ name: 'AX-1 connector', status: 'draft', assetIds: ['00000000-0000-4000-8000-000000000001'], sections: [{ label: 'Material', content: 'Steel', source: citation }] })
+                if (scenario.name === 'enterprise-ocr-draft') expect(JSON.parse(String(db.prepare('SELECT data FROM files').get()!.data)).ocr.reviewedAt).toBeNull()
               } finally { db.close() }
             }
             if (scenario.name === 'session-query-spill') {

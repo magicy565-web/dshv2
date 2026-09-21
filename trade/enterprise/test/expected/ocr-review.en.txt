@@ -1,0 +1,8 @@
+OCR text awaits human review
+Close
+Recognition runs locally and preserves the original. First use may download language data. Compare the text with the original. If recognition is incorrect, supply a text version or explain the correction in the onboarding conversation; do not confirm incorrect text.
+Page 1
+AX-1 Steel
+Page 2
+MOQ 100
+Text matches the original; confirm review

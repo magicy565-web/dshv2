@@ -1,11 +1,13 @@
 /** Service Definition for structured AI site editing and publishing. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {
-  PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteContent, SiteRevisionDiff, SiteProject,
+  PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteContent,
+  SiteRevisionDiff, SiteProject, SitePublishTarget, SitePublishAttempt,
 } from './types.ts'
 import { compareSiteContent } from './revisions.ts'
 import { renderPageJsonLd, renderRobots, renderSitePage, renderSitemap } from './render.ts'
-import { buildStaticSite, type SiteArtifact } from './project.ts'
+import type { SiteArtifact } from './project.ts'
+import { staticSiteRendering, type SiteRendering } from './rendering.ts'
 import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
 
 export * from './types.ts'
@@ -17,6 +19,8 @@ export { createShopifySitePublisher, renderShopifyThemeFiles } from './shopify-p
 export type { SiteThemeRenderer } from './shopify-publisher.ts'
 export { buildStaticSite, sitePreviewResponse, validateSiteProject } from './project.ts'
 export type { SiteArtifact, SiteArtifactFile } from './project.ts'
+export { staticSiteRendering } from './rendering.ts'
+export type { SiteRendering } from './rendering.ts'
 
 /** Authenticated tenant and requested site to authorize. */
 export interface SiteResolveRequest { readonly tenantId: TenantId; readonly siteId: SiteId }
@@ -35,7 +39,20 @@ declare module '@deepseek-ai/cordis' {
 
 /** Site editing service. It accepts typed change sets and never accepts raw Shopify API requests. */
 export abstract class SiteService extends Service {
-  constructor(ctx: Context) { super(ctx, 'site') }
+  /** Rename or archive a site against the observed management version.
+   * @param spec - Authorized tenant and site.
+   * @param expectedVersion - Observed management version, zero before the first management change.
+   * @param changes - New name or archive status. Active publication prevents archiving.
+   * @returns Committed metadata with an incremented management version.
+   */
+  abstract manage(spec: SiteSpec, expectedVersion: number, changes: { name?: string; archived?: boolean }): Site
+  /** Delete an archived site, its source revisions and jobs; retain a cleanup receipt.
+   * @param spec - Authorized tenant and site.
+   * @param expectedVersion - Observed management version.
+   * @throws When the site is active, published through its publisher, or has pending jobs.
+   */
+  abstract deleteSite(spec: SiteSpec, expectedVersion: number): void
+  constructor(ctx: Context, private readonly rendering: SiteRendering = staticSiteRendering) { super(ctx, 'site') }
   /** Create a site for an authorized tenant, optionally connected to commerce.
    * @param tenantId - Identity supplied by the authenticated host.
    * @param name - Site display name.
@@ -128,7 +145,18 @@ export abstract class SiteService extends Service {
   build(spec: SiteSpec, revisionId: SiteRevisionId): SiteArtifact {
     const project = this.content(spec, revisionId).project
     if (!project) throw new Error('site revision has no source project')
-    return buildStaticSite(revisionId, project)
+    return this.rendering.build(revisionId, project)
+  }
+  /** Render an already compiled artifact through the installed preview provider.
+   * @param artifact - Immutable artifact obtained from an authorized revision.
+   * @param path - Requested project-relative browser path.
+   * @param resolveUrl - Host-owned resolver for private or public navigation.
+   * @param maxBytes - Deployment output limit.
+   * @param parentNavigation - Whether links ask the authenticated parent to load another preview page.
+   * @returns Isolated browser response; compilation never executes generated code on the Host.
+   */
+  renderArtifact(artifact: SiteArtifact, path: string, resolveUrl: (path: string) => string, maxBytes: number, parentNavigation = false): Promise<Response> {
+    return this.rendering.preview(artifact, path, resolveUrl, maxBytes, parentNavigation)
   }
   /** Render a page from resolved draft content; this does not publish it.
    * @param spec - Resolved tenant and site.
@@ -185,9 +213,16 @@ export abstract class SiteService extends Service {
   /** Queue one immutable revision; coalesce a duplicate queued or running request.
    * @param spec - Authorized tenant and site identity.
    * @param revisionId - Saved revision to queue.
+   * @param target - Optional immutable store, theme and reviewed files digest.
    * @returns The queued or existing job; validation and storage failures reject the promise.
    */
-  abstract queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob>
+  abstract queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId, target?: SitePublishTarget): Promise<PublishJob>
+  /** Persist an attempt before dispatch or after its response, while its job is running.
+   * @param spec - Authorized site.
+   * @param jobId - Running job.
+   * @param attempt - Full replacement for the numbered attempt.
+   */
+  abstract recordPublishAttempt(spec: SiteSpec, jobId: PublishJobId, attempt: SitePublishAttempt): void
   /** Execute a queued job, retaining the prior publication on failure.
    * @param spec - Resolved tenant and site.
    * @param jobId - Queued publication job.

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** Overview counts and navigation reflect saved business records. */
+/** Home presents the active goal, work in motion, pending decisions and confirmed outcomes. */
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, within } from '@testing-library/react'
@@ -8,6 +8,7 @@ import { EnterpriseOverview } from '../src/client-overview.tsx'
 import { en, zh } from '../src/locales.ts'
 import { snapshotSchema, type Snapshot } from '../src/schema.ts'
 import { taskSchema } from '../src/tasks-schema.ts'
+import { businessGoalSchema } from '../src/business-goals-schema.ts'
 import { opportunitySchema } from '../src/opportunities-schema.ts'
 import { geoRecord } from '../src/geo-schema.ts'
 
@@ -21,8 +22,15 @@ function emptySnapshot(): Snapshot {
   })
 }
 
-function task(value: number, title: string, status: Snapshot['tasks'][number]['status'], archived = false) {
-  return taskSchema.parse({ id: id(value), title, status, archived, revision: 1, description: '', assignee: '', dueDate: null, goalId: null, outcome: '', createdAt: recordedAt, updatedAt: recordedAt })
+function goal(value: number, title: string, status: Snapshot['goals'][number]['status'], dueDate: string | null = '2099-12-31') {
+  return businessGoalSchema.parse({
+    id: id(value), title, successCriteria: 'Win 10 qualified buyers and 3 sample requests', owner: '', dueDate, status,
+    outcome: status === 'achieved' ? 'Signed 3 buyers' : '', archived: false, revision: 1, createdAt: recordedAt, updatedAt: recordedAt,
+  })
+}
+
+function task(value: number, title: string, status: Snapshot['tasks'][number]['status'], archived = false, goalId: string | null = null, outcome = '') {
+  return taskSchema.parse({ id: id(value), title, status, archived, revision: 1, description: '', assignee: '', dueDate: null, goalId, outcome, createdAt: recordedAt, updatedAt: recordedAt })
 }
 
 function opportunity(value: number, status: Snapshot['opportunities'][number]['status'], archived = false) {
@@ -37,6 +45,7 @@ function opportunity(value: number, status: Snapshot['opportunities'][number]['s
 function recordsSnapshot(): Snapshot {
   return snapshotSchema.parse({
     ...emptySnapshot(),
+    goals: [goal(1, 'Expand Printed Rayon into the US market', 'active')],
     geo: [
       { value: 1, status: 'confirmed', kind: 'company' },
       { value: 2, status: 'draft', kind: 'product' },
@@ -53,51 +62,104 @@ function recordsSnapshot(): Snapshot {
       { id: id(3), name: 'notes.txt', mime: 'text/plain', size: 100, category: 'document', knowledgeStatus: 'failed', createdAt: recordedAt },
     ],
     opportunities: [opportunity(1, 'lead'), opportunity(2, 'negotiating'), opportunity(3, 'qualified', true), opportunity(4, 'won'), opportunity(5, 'lost')],
-    tasks: [task(1, 'Review buyer requirements', 'todo'), task(2, 'Prepare product samples', 'in_progress'), task(3, 'Resolve shipping details', 'blocked'), task(4, 'Completed introduction', 'done'), task(5, 'Archived follow-up', 'todo', true)],
+    tasks: [
+      task(1, 'Review buyer requirements', 'todo'),
+      task(2, 'Prepare product samples', 'in_progress', false, id(1)),
+      task(3, 'Resolve shipping details', 'blocked'),
+      task(4, 'Completed introduction', 'done', false, id(1), 'Sent the company introduction to the buyer'),
+      task(5, 'Archived follow-up', 'todo', true),
+    ],
   })
 }
 
 afterEach(cleanup)
 
-describe('enterprise workbench', () => {
-  it('shows confirmed records, saved assets and only ongoing work', () => {
-    const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate: vi.fn() }))
-    expect(view.getByRole('button', { name: /^已确认档案/ }).textContent).toBe('已确认档案2已确认的企业与产品记录')
-    expect(view.getByRole('button', { name: /^企业资料3/ }).textContent).toBe('企业资料3可重复使用的图片、视频和文档')
-    expect(view.getByRole('button', { name: /^跟进中的机会/ }).textContent).toBe('跟进中的机会2未归档且尚未结束的买家机会')
-    expect(view.getByRole('button', { name: /^待推进任务/ }).textContent).toBe('待推进任务3未归档且尚未完成的任务')
-    expect(view.getByText('1 / 3 份资料可供 AI 检索')).toBeTruthy()
-    expect(within(view.getByRole('list')).getAllByRole('listitem')).toHaveLength(3)
-    expect(view.getByText('Review buyer requirements')).toBeTruthy()
-    expect(view.getByText('Prepare product samples')).toBeTruthy()
-    expect(view.getByText('Resolve shipping details')).toBeTruthy()
-    expect(view.queryByText('Completed introduction')).toBeNull()
-    expect(view.queryByText('Archived follow-up')).toBeNull()
-  })
-
-  it('opens the owning views from metrics, next actions and task rows', () => {
+describe('enterprise workbench home', () => {
+  it('presents the active goal as the page brief with factual task context', () => {
     const navigate = vi.fn()
     const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate }))
-    const destinations = [
-      [/^已确认档案/, 'supplier'], [/^企业资料3/, 'assets'], [/^跟进中的机会/, 'opportunities'], [/^待推进任务/, 'tasks'],
-      [/^企业资料把产品介绍/, 'assets'], [/^机会看板查看买家线索/, 'opportunities'], [/^AI 创作使用已有资料/, 'ai'],
-      ['查看全部任务', 'tasks'], [/^Review buyer requirements/, 'tasks'], ['查看企业展示', 'supplier'],
-    ] as const
-    for (const [name, destination] of destinations) {
+    const brief = view.getByRole('region', { name: '当前业务目标' })
+    expect(within(brief).getByRole('heading', { name: 'Expand Printed Rayon into the US market' })).toBeTruthy()
+    expect(within(brief).getByText('推进中')).toBeTruthy()
+    expect(within(brief).getByText('1 / 2 个任务已完成 · 0 个受阻')).toBeTruthy()
+    fireEvent.click(within(brief).getByRole('button', { name: /查看目标/ }))
+    expect(navigate.mock.calls).toEqual([['goals']])
+  })
+
+  it('marks a paused goal without work emphasis', () => {
+    const data = snapshotSchema.parse({ ...recordsSnapshot(), goals: [goal(1, 'Pause market entry', 'paused')] })
+    const view = render(createElement(EnterpriseOverview, { data, t: makeTranslate(zh), navigate: vi.fn() }))
+    const brief = view.getByRole('region', { name: '当前业务目标' })
+    expect(within(brief).getByText('已暂停')).toBeTruthy()
+  })
+
+  it('lists only work in motion inside the workstream', () => {
+    const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate: vi.fn() }))
+    const stream = view.getByRole('region', { name: '正在推进' })
+    expect(within(stream).getByText('Prepare product samples')).toBeTruthy()
+    expect(within(stream).getByText('Buyer 2')).toBeTruthy()
+    for (const absent of ['Review buyer requirements', 'Completed introduction', 'Archived follow-up', 'Buyer 1', 'Buyer 3', 'Buyer 4', 'Buyer 5']) {
+      expect(within(stream).queryByText(absent)).toBeNull()
+    }
+  })
+
+  it('collects blocked tasks, draft records, failed files and new leads in the attention queue', () => {
+    const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate: vi.fn() }))
+    const queue = view.getByRole('complementary', { name: '需要你的处理' })
+    expect(within(queue).getByText('Resolve shipping details')).toBeTruthy()
+    expect(within(queue).getByText('Record 2')).toBeTruthy()
+    expect(within(queue).getByText('notes.txt')).toBeTruthy()
+    expect(within(queue).getByText('Buyer 1')).toBeTruthy()
+    expect(within(queue).queryByText('Record 1')).toBeNull()
+    expect(within(queue).queryByText('catalog.pdf')).toBeNull()
+  })
+
+  it('records completed tasks, won opportunities and confirmed records on the outcome rail', () => {
+    const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate: vi.fn() }))
+    const rail = view.getByRole('region', { name: '最近成果' })
+    expect(within(rail).getByText('Completed introduction')).toBeTruthy()
+    expect(within(rail).getByText('Buyer 4')).toBeTruthy()
+    expect(within(rail).getByText('Record 1')).toBeTruthy()
+    expect(within(rail).getByText('Record 3')).toBeTruthy()
+    expect(within(rail).queryByText('Prepare product samples')).toBeNull()
+    expect(within(rail).queryByText('Record 2')).toBeNull()
+  })
+
+  it('opens the owning workspace view from every row', () => {
+    const navigate = vi.fn()
+    const view = render(createElement(EnterpriseOverview, { data: recordsSnapshot(), t: makeTranslate(zh), navigate }))
+    const stream = view.getByRole('region', { name: '正在推进' })
+    const queue = view.getByRole('complementary', { name: '需要你的处理' })
+    const rail = view.getByRole('region', { name: '最近成果' })
+    const destinations: Array<[HTMLElement, string]> = [
+      [within(stream).getByText('Prepare product samples'), 'tasks'],
+      [within(stream).getByText('Buyer 2'), 'opportunities'],
+      [within(queue).getByText('Resolve shipping details'), 'tasks'],
+      [within(queue).getByText('Record 2'), 'ai'],
+      [within(queue).getByText('notes.txt'), 'assets'],
+      [within(queue).getByText('Buyer 1'), 'opportunities'],
+      [within(rail).getByText('Completed introduction'), 'tasks'],
+      [within(rail).getByText('Buyer 4'), 'opportunities'],
+      [within(rail).getByText('Record 1'), 'supplier'],
+    ]
+    for (const [title, destination] of destinations) {
       navigate.mockClear()
-      fireEvent.click(view.getByRole('button', { name }))
+      fireEvent.click(title.closest('button')!)
       expect(navigate.mock.calls).toEqual([[destination]])
     }
   })
 
-  it.each([{ locale: 'zh', dictionary: zh }, { locale: 'en', dictionary: en }])('shows an actionable empty workspace in $locale', async ({ locale, dictionary }) => {
+  it.each([{ locale: 'zh', dictionary: zh }, { locale: 'en', dictionary: en }])('shows a goal-first empty workspace in $locale', async ({ locale, dictionary }) => {
     const navigate = vi.fn()
     const view = render(createElement(EnterpriseOverview, { data: emptySnapshot(), t: makeTranslate(dictionary), navigate }))
-    expect(view.getByRole('heading', { name: dictionary.workbenchNoTasks })).toBeTruthy()
+    expect(view.getByRole('heading', { name: dictionary.workbenchGoalCreate })).toBeTruthy()
     expect(view.queryByRole('list')).toBeNull()
     const visibleText = [...view.container.querySelectorAll('h2,h3,p,button')].map(element => element.textContent).join('\n') + '\n'
     await expect(visibleText).toMatchFileSnapshot(`./expected/workbench-empty.${locale}.txt`)
-    fireEvent.click(view.getByRole('button', { name: dictionary.taskCreate }))
-    expect(navigate.mock.calls).toEqual([['tasks']])
+    fireEvent.click(view.getByRole('button', { name: dictionary.workbenchGoalCreateAction }))
+    expect(navigate.mock.calls).toEqual([['goals']])
+    navigate.mockClear()
+    fireEvent.click(view.getByRole('button', { name: dictionary.workbenchStartSources }))
+    expect(navigate.mock.calls).toEqual([['assets']])
   })
 })

@@ -15,7 +15,7 @@ export function onboardingSteps(data: Snapshot | null): [boolean, boolean, boole
     if (file.status === 'pending' || !file.assessment || file.assessment.disposition === 'needs_input') return false
     if (file.assessment.disposition === 'excluded') return true
     const asset = data.files.find(asset => asset.id === file.fileId)
-    return Boolean(asset && !asset.textTruncated && file.status === 'imported' && file.chunkCount > 0 && file.readChunks.length === file.chunkCount)
+    return Boolean(asset && !asset.textTruncated && (!asset.ocr || asset.ocr.reviewedAt) && file.status === 'imported' && file.chunkCount > 0 && file.readChunks.length === file.chunkCount)
   })) : current.length > 0 && current.every(record => record.sections.length > 0 && record.sections.every(section => section.source.trim()))
   const reviewRecords = data.onboarding.completedAt ? data.onboarding.scopeIds.flatMap(id => data.geo.filter(record => record.id === id && !record.archivedAt)) : current
   const reviewed = reviewRecords.some(record => record.kind === 'company' && record.status === 'confirmed') && reviewRecords.every(record => record.status === 'confirmed')

@@ -750,6 +750,19 @@ Source: [`packages/session/session-title-llm/src/index.ts:45`](../packages/sessi
 
 Source: [`packages/session/session-log-deepseek/src/types.ts:81`](../packages/session/session-log-deepseek/src/types.ts)
 
+### `site/*`
+
+<a id="sitestate--log-only"></a>
+
+#### `site/state` — log-only
+
+```ts persistence-catalog
+/** Complete committed site metadata; log-only activity, never model context or source authority. */
+'site/state': SiteStateChange
+```
+
+Source: [`packages/site/site/src/session.ts:39`](../packages/site/site/src/session.ts)
+
 ### `step/*`
 
 <a id="stepend--log-only"></a>

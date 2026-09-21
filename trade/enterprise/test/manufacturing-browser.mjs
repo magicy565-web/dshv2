@@ -35,6 +35,7 @@ export async function verifyManufacturing(page, context, endpoint, evidence) {
   for (const style of ['precision', 'international']) {
     await page.getByRole('button', { name: '新建网站', exact: true }).click()
     await page.getByLabel('网站风格').selectOption(style)
+    await page.getByText('其他创建方式', { exact: true }).click()
     await page.getByLabel('品牌名称', { exact: true }).fill('Acme Motion')
     const createdResponse = page.waitForResponse(response => response.url().includes('action=starter') && response.request().method() === 'POST')
     await page.getByRole('button', { name: '从制造业模板开始', exact: true }).click()

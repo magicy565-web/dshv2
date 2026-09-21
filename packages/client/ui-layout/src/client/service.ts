@@ -28,13 +28,20 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>
 export interface ILayout {
   /**
    * Select a global central panel without changing the current Session.
+   * Registered guards can retain the current panel by returning false.
    * @param panelId - registered main key, or null to show the Conversation.
    * @throws if the selected main key is not registered; preserves the current selection.
    */
   selectPanel(panelId: MainPanelId | null): void
   /**
+   * Register a synchronous check before a valid panel selection is applied.
+   * @param allow - return false to retain selection and pending navigation; checks run in registration order.
+   * @returns an idempotent disposer; panel owners release the check when unmounted.
+   */
+  registerPanelGuard(allow: (panelId: MainPanelId | null) => boolean): () => void
+  /**
    * Start an asynchronous navigation, superseding any earlier pending navigation.
-   * @returns a signal aborted by the next navigation or layout disposal; check it before committing UI state.
+   * @returns a signal aborted by the next navigation request, allowed panel selection or disposal; check it before committing UI state.
    */
   beginNavigation(): AbortSignal
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
@@ -54,6 +61,7 @@ export interface ILayout {
 /** Cross-plugin panel-action face (ctx.layout). */
 export class LayoutController implements ILayout {
   private navigation = new AbortController()
+  private readonly panelGuards = new Set<{ allow: (panelId: MainPanelId | null) => boolean }>()
 
   /**
    * @param panels - actions of the instance shared with the root entry.
@@ -69,8 +77,18 @@ export class LayoutController implements ILayout {
     if (panelId !== null && !this.hasMainPanel(panelId)) {
       throw new Error(`layout.selectPanel: main panel "${panelId}" is not registered`)
     }
+    for (const guard of this.panelGuards) {
+      if (!guard.allow(panelId)) return
+    }
     this.navigation.abort()
     this.panels.selectPanel(panelId)
+  }
+
+  /** Register a panel selection check until its owner or the layout is disposed. */
+  registerPanelGuard(allow: (panelId: MainPanelId | null) => boolean): () => void {
+    const guard = { allow }
+    this.panelGuards.add(guard)
+    return () => { this.panelGuards.delete(guard) }
   }
 
   /** @returns the new pending navigation's cancellation signal. */
@@ -83,6 +101,7 @@ export class LayoutController implements ILayout {
   /** Invalidate pending navigations when the layout owner is unloaded. */
   dispose(): void {
     this.navigation.abort()
+    this.panelGuards.clear()
   }
 
   /** Toggle the sidebar panel (closed ⟷ contract default width). */

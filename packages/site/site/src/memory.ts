@@ -7,7 +7,8 @@ import { assertValidSiteChangeSet } from './validation.ts'
 import { parseSiteSnapshot } from './snapshot.ts'
 import { SiteService, type SitePublisher, type SiteSpec } from './index.ts'
 import type { PublishJob, PublishJobId, Site, SiteChangeSet, SiteId, SiteRevision, SiteRevisionId, SiteSnapshot, SiteStateStore } from './types.ts'
-import type { SiteProject } from './types.ts'
+import type { SiteProject, SiteStateChange, SitePublishTarget, SitePublishAttempt } from './types.ts'
+import { staticSiteRendering, type SiteRendering } from './rendering.ts'
 
 /** In-memory site service that exercises tenant checks and the draft/publish lifecycle. */
 export class InMemorySiteService extends SiteService {
@@ -15,19 +16,40 @@ export class InMemorySiteService extends SiteService {
   private readonly revisions = new Map<SiteRevisionId, SiteRevision>()
   private readonly jobs = new Map<PublishJobId, PublishJob>()
   private readonly activeSites = new Set<SiteId>()
+  private pending: SiteStateChange[] = []
+  private sequence = 0
+  private deleted: { tenantId: TenantId; siteId: SiteId }[] = []
   constructor(
     ctx: Context,
     private readonly publisher?: (site: Site, revision: SiteRevision) => Promise<void>,
     private readonly storage?: SiteStateStore,
+    rendering: SiteRendering = staticSiteRendering,
   ) {
-    super(ctx)
+    super(ctx, rendering)
     const snapshot = storage?.load()
     if (snapshot) this.restore(snapshot)
   }
-  private commit(change: () => void): void {
+  private commit(change: () => void, record = true): void {
     const before = this.snapshot()
     try {
       change()
+      if (record) {
+        const owners = new Map([...before.sites, ...this.sites.values()].map(site => [site.id, site]))
+        for (const [siteId, owner] of owners) {
+          const previous = {
+            site: before.sites.find(site => site.id === siteId), revisions: before.revisions.filter(item => item.siteId === siteId),
+            jobs: before.jobs.filter(item => item.siteId === siteId),
+          }
+          const site = this.sites.get(siteId)
+          const revisions = [...this.revisions.values()].filter(item => item.siteId === siteId)
+          const jobs = [...this.jobs.values()].filter(item => item.siteId === siteId)
+          if (JSON.stringify(previous) === JSON.stringify({ site, revisions, jobs })) continue
+          this.pending.push({
+            sequence: ++this.sequence, time: Date.now(), tenantId: owner.tenantId, siteId, site: site ?? null,
+            revisions: revisions.map(({ id, createdAt, source }) => ({ id, createdAt, source })), jobs,
+          })
+        }
+      }
       this.storage?.commit(this.snapshot())
     } catch (error) {
       this.replace(before)
@@ -35,6 +57,9 @@ export class InMemorySiteService extends SiteService {
     }
   }
   private replace(snapshot: SiteSnapshot): void {
+    this.pending = [...(snapshot.pendingChanges ?? [])]
+    this.sequence = snapshot.changeSequence ?? 0
+    this.deleted = [...(snapshot.deletedSites ?? [])]
     this.sites.clear(); this.revisions.clear(); this.jobs.clear()
     for (const site of snapshot.sites) this.sites.set(site.id, site)
     for (const revision of snapshot.revisions) this.revisions.set(revision.id, revision)
@@ -44,7 +69,7 @@ export class InMemorySiteService extends SiteService {
     const recovered = {
       ...snapshot,
       jobs: snapshot.jobs.map(job => job.status === 'running'
-        ? { ...job, status: 'failed' as const, error: 'publication interrupted; reconcile provider state before retrying' }
+        ? { ...job, status: 'failed' as const, error: 'publication interrupted; reconcile provider state before retrying', ...(job.attempts ? { attempts: job.attempts.map(attempt => attempt.status === 'running' ? { ...attempt, status: 'failed' as const, finishedAt: new Date().toISOString(), error: 'publication interrupted; reconcile provider state before retrying' } : attempt) } : {}) }
         : job),
     }
     this.replace(recovered)
@@ -70,6 +95,7 @@ export class InMemorySiteService extends SiteService {
   // oxlint-disable-next-line typescript/require-await -- Validation and storage failures must reject the service promise.
   async createRevision(spec: SiteSpec, changeSet: SiteChangeSet, source: SiteRevision['source']): Promise<SiteRevision> {
     const site = this.get(spec); if (!site) throw new Error('site is not available for this tenant')
+    if (site.archived) throw new Error('restore the archived site before editing')
     assertValidSiteChangeSet(changeSet)
     if (changeSet.baseRevisionId !== site.currentRevisionId) throw new Error('site revision conflict')
     const recorded = { ...changeSet, ...(site.currentRevisionId === undefined ? {} : { baseRevisionId: site.currentRevisionId }) }
@@ -89,16 +115,18 @@ export class InMemorySiteService extends SiteService {
     return this.runPublishJob(spec, job.id)
   }
   // oxlint-disable-next-line typescript/require-await -- Validation and storage failures must reject the service promise.
-  async queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId): Promise<PublishJob> {
+  async queuePublishJob(spec: SiteSpec, revisionId: SiteRevisionId, target?: SitePublishTarget): Promise<PublishJob> {
+    if (this.get(spec)?.archived) throw new Error('restore the archived site before publishing')
     const revision = this.getRevision(spec, revisionId)
     if (!revision) throw new Error('site revision is not available for this tenant')
     for (const job of this.jobs.values()) {
-      if (job.siteId === spec.siteId && job.revisionId === revisionId && (job.status === 'queued' || job.status === 'running')) {
+      if (job.siteId === spec.siteId && job.revisionId === revisionId && JSON.stringify(job.target) === JSON.stringify(target) && (job.status === 'queued' || job.status === 'running')) {
         return structuredClone(job)
       }
     }
     const job: PublishJob = {
       id: brandString<PublishJobId>(randomUUID()), siteId: spec.siteId, revisionId, status: 'queued',
+      ...(target ? { target: structuredClone(target) } : {}),
     }
     this.commit(() => { this.jobs.set(job.id, job) })
     return structuredClone(job)
@@ -125,13 +153,17 @@ export class InMemorySiteService extends SiteService {
       try {
         await publisher(site, revision)
       } catch (error) {
-        const failed: PublishJob = { ...queued, status: 'failed', error: String(error) }
+        const latest = this.jobs.get(queued.id)
+        if (!latest) throw new Error('active publication job disappeared')
+        const failed: PublishJob = { ...latest, status: 'failed', error: String(error) }
         this.commit(() => { this.jobs.set(queued.id, failed) })
         return structuredClone(failed)
       }
       const current = this.sites.get(site.id)
       if (current === undefined) throw new Error('site disappeared during publication')
-      const succeeded: PublishJob = { ...queued, status: 'succeeded' }
+      const latest = this.jobs.get(queued.id)
+      if (!latest) throw new Error('active publication job disappeared')
+      const succeeded: PublishJob = { ...latest, status: 'succeeded' }
       this.commit(() => {
         this.sites.set(site.id, { ...current, publishedRevisionId: revision.id })
         this.jobs.set(queued.id, succeeded)
@@ -144,6 +176,14 @@ export class InMemorySiteService extends SiteService {
   getPublishJob(spec: SiteSpec, jobId: PublishJobId): PublishJob | undefined {
     const job = this.jobs.get(jobId)
     return job && this.get(spec)?.id === job.siteId ? structuredClone(job) : undefined
+  }
+  recordPublishAttempt(spec: SiteSpec, jobId: PublishJobId, attempt: SitePublishAttempt): void {
+    const job = this.getPublishJob(spec, jobId)
+    if (!job || job.status !== 'running') throw new Error('publication attempt requires a running job')
+    const attempts = [...(job.attempts ?? [])]
+    const index = attempts.findIndex(item => item.number === attempt.number)
+    if (index < 0) attempts.push(structuredClone(attempt)); else attempts[index] = structuredClone(attempt)
+    this.commit(() => { this.jobs.set(jobId, { ...job, attempts }) })
   }
   listPublishJobs(spec: SiteSpec): readonly PublishJob[] {
     const site = this.get(spec); if (!site) return []
@@ -168,7 +208,49 @@ export class InMemorySiteService extends SiteService {
   list(tenantId: TenantId): readonly Site[] {
     return structuredClone([...this.sites.values()].filter(site => site.tenantId === tenantId))
   }
-  createSiteWithProject(tenantId: TenantId, name: string, project: SiteProject, source: SiteRevision['source']): Site {
+  manage(spec: SiteSpec, expectedVersion: number, changes: { name?: string; archived?: boolean }): Site {
+    const site = this.managementSite(spec, expectedVersion)
+    if (changes.archived) this.assertInactive(spec)
+    if (changes.name !== undefined && (!changes.name.trim() || changes.name.trim().length > 160)) throw new Error('site name must contain 1 to 160 characters')
+    const next = {
+      ...site, ...changes, ...(changes.name === undefined ? {} : { name: changes.name.trim() }), managementVersion: expectedVersion + 1,
+    }
+    this.commit(() => { this.sites.set(site.id, next) })
+    return structuredClone(next)
+  }
+  deleteSite(spec: SiteSpec, expectedVersion: number): void {
+    const site = this.managementSite(spec, expectedVersion)
+    if (!site.archived || site.publishedRevisionId) throw new Error('archive and unpublish the site before deleting it')
+    this.assertInactive(spec)
+    this.commit(() => {
+      this.sites.delete(site.id)
+      for (const [id, revision] of this.revisions) if (revision.siteId === site.id) this.revisions.delete(id)
+      for (const [id, job] of this.jobs) if (job.siteId === site.id) this.jobs.delete(id)
+      this.deleted.push({ tenantId: site.tenantId, siteId: site.id })
+    })
+  }
+  private managementSite(spec: SiteSpec, expectedVersion: number): Site {
+    const site = this.get(spec)
+    if (!site) throw new Error('site is not available for this tenant')
+    if ((site.managementVersion ?? 0) !== expectedVersion) throw new Error('site management conflict; refresh before retrying')
+    return site
+  }
+  private assertInactive(spec: SiteSpec): void {
+    if (this.activeSites.has(spec.siteId) || this.listPublishJobs(spec).some(job => job.status === 'queued' || job.status === 'running')) throw new Error('finish or cancel pending publication before managing the site')
+  }
+  /** Read committed changes awaiting durable Session delivery.
+   * @returns Detached changes in commit order.
+   */
+  pendingChanges(): readonly SiteStateChange[] { return structuredClone(this.pending) }
+  /** Acknowledge a durably flushed prefix; failure preserves it for replay.
+   * @param sequence - Last durably journaled change sequence.
+   */
+  acknowledgeChanges(sequence: number): void {
+    this.commit(() => { this.pending = this.pending.filter(change => change.sequence > sequence) }, false)
+  }
+  createSiteWithProject(
+    tenantId: TenantId, name: string, project: SiteProject, source: SiteRevision['source'],
+  ): Site {
     assertValidSiteChangeSet({ project })
     const revisionId = brandString<SiteRevisionId>(randomUUID())
     const site: Site = { id: brandString<SiteId>(randomUUID()), tenantId, name, currentRevisionId: revisionId }
@@ -184,6 +266,8 @@ export class InMemorySiteService extends SiteService {
   snapshot(): SiteSnapshot {
     return structuredClone({
       sites: [...this.sites.values()], revisions: [...this.revisions.values()], jobs: [...this.jobs.values()],
+      ...(this.sequence ? { changeSequence: this.sequence, pendingChanges: this.pending } : {}),
+      ...(this.deleted.length ? { deletedSites: this.deleted } : {}),
     })
   }
   /** Restore a previously exported state snapshot.
@@ -192,7 +276,8 @@ export class InMemorySiteService extends SiteService {
   restore(snapshot: SiteSnapshot): void {
     if (this.activeSites.size > 0) throw new Error('cannot restore site state during publication')
     snapshot = parseSiteSnapshot(snapshot)
-    this.commit(() =>{  this.replaceRecovered(snapshot) })
+    this.commit(() => { this.replace(snapshot) }, false)
+    if (snapshot.jobs.some(job => job.status === 'running')) this.commit(() => { this.replaceRecovered(snapshot) })
   }
   /** Atomically replace a snapshot file; its parent directory must exist.
    * @param path - Administrator-controlled destination file.

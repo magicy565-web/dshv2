@@ -29,6 +29,13 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
+For a repeatable dependency repair, use the locked install followed by a native-dependency rebuild. Add `--force` when the package store or workspace links are suspected to be stale:
+
+```sh
+pnpm run deps:refresh
+pnpm run deps:refresh -- --force
+```
+
 The install also configures worktree-local Lefthook hooks and the `dsh-translation-pairing` Git merge driver through `scripts/install-lefthook.mjs`. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the hook-path safety contract; the [automatic pairing merges Agent Note](../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.md) owns the merge driver.
 
 If either integration is missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
@@ -85,6 +92,12 @@ Typert runs only during Host tsdown, seeded by `tsconfig.host.json`. It analyzes
 
 `pnpm run build` embeds the root package version, the seven-character source commit, and a dirty marker when Git reports local changes; it also inherits other caller-supplied `DSH_CLIENT_*` values. `pnpm run build:official` is the cross-platform local equivalent of the CI and release artifact build and omits the local dirty marker. Each successful complete build writes a gitignored record that binds the exact public values to the Vite output and dynamic client bundles; release packing and built Web tests reject a missing record or artifacts changed by a later partial build. `pnpm run dev:web` still requires the artifact tree from a prior complete build, but it samples the current version and Git state once at startup and shares that environment across every watcher stage for the session; it does not validate the complete-build record because the watcher stages rewrite its recorded artifacts.
 
+An exported source archive has no Git metadata, so its build must receive the external source identifier explicitly:
+
+```sh
+pnpm run build:archive -- --commit <7-40-hex-source-id>
+```
+
 Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Generated Host-for-Client Remote declarations are the deliberate exception: the public `typecheck`, `lint`, and `doc-typecheck` commands generate them first, while internal `*:contracts-ready` scripts assume that an invoking public command or scheduler gate already depends on the Typert contract-generation pass or the complete build. See the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md) for tsc-first emit ownership and the [Typert Remote note](../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) for the gate-preparation contract.
 
 Business services declare callable methods on the Host with `@Remote` or `@RemoteScope`; the Host build generates Host-for-Client types and runtime contributions, and the Client's `api-remotes` composition loads those contributions under `ctx.remote` and scoped `agentCtx.remote` namespaces. See [API Gateway](api-gateway.md) for the generated artifacts on both sides, their assembly relationships, the SRC development fallback, and the Web build order.
@@ -107,6 +120,12 @@ DEEPSEEK_BASE_URL=https://... # optional
 ```
 
 `DEEPSEEK_BASE_URL` is optional and defaults to the public API. Never commit real credentials. The real-API e2e suites self-skip when `DEEPSEEK_API_KEY` is not set.
+
+The focused FastAI credential scan checks source files and ignored local environment files while excluding generated dependency and build directories. It reports locations only and never prints matching values:
+
+```sh
+pnpm run security:fastai
+```
 
 ### Git integrations
 

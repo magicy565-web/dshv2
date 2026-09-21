@@ -21,6 +21,21 @@ const drawings = {
   globe: <><circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18" /></>,
   monitor: <><rect x="3" y="3" width="18" height="13" rx="3" /><path d="M8 21h8m-4-5v5M8 8l-2 2 2 2m8-4 2 2-2 2" /></>,
   link: <><path d="m9 15 6-6M8 16l-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 8a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-1 1" /></>,
+  x: <path d="M6 6l12 12M18 6L6 18" />,
+  check: <path d="M4 12.5l5 5L20 6.5" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  copy: <><rect x="9" y="9" width="12" height="12" rx="2.5" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></>,
+  filter: <path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z" />,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2.5" /><path d="M3 10h18M8 3v4M16 3v4" /></>,
+  file: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" /><path d="M14 3v6h6" /></>,
+  mail: <><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m3 7 9 6 9-6" /></>,
+  more: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
+  send: <path d="M21 3 10 14m11-11-7 18-4-7-7-4 18-7Z" />,
+  alert: <><circle cx="12" cy="12" r="9" /><path d="M12 8v5m0 3.5v.5" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8.5v.5" /></>,
+  chevronLeft: <path d="m14 6-6 6 6 6" />,
+  chevronRight: <path d="m10 6 6 6-6 6" />,
+  download: <path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16" />,
 } satisfies Record<string, ReactNode>
 
 /** Names accepted by the profile's decorative icon component. */

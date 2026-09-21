@@ -6,6 +6,7 @@ import type { Command, Fact, Id, Principal, Records } from './schema.ts'
 import { readiness, supported } from './readiness.ts'
 import { matchOpportunity } from './matching.ts'
 import { launchKit } from './listing.ts'
+import { executeIntake } from './intake.ts'
 
 const human = (a: Principal) => !a.role.endsWith('-agent')
 const factory = (a: Principal) => a.role.startsWith('factory')
@@ -93,6 +94,12 @@ export class CommerceService {
       demand(!publishing, 'publication_requires_reconciliation', 409)
     }
     switch (c.type) {
+      case 'onboarding.start':
+      case 'onboarding.source':
+      case 'onboarding.company':
+      case 'onboarding.products':
+      case 'onboarding.submit':
+        return executeIntake(this.store, a, c, now, command => this.command(a, command))
       case 'company.save': {
         demand(factory(a) && c.id === a.subjectId)
         const r = s.get('company', c.id)
@@ -124,7 +131,13 @@ export class CommerceService {
         demand(c.sourceType !== 'WEBSITE' || c.sourceUrl, 'source_url_required', 400)
         demand(c.sourceType !== 'DOCUMENT' || c.sourceFile, 'source_file_required', 400)
         demand(!c.validUntil || c.validUntil > now, 'source_expired', 400)
-        return s.put('evidence', { ...base(now), ownerId: a.subjectId, entityType: c.entityType, entityId: c.entityId, field: c.field, value: c.value, sourceType: c.sourceType, sourceUrl: c.sourceUrl, sourceFile: c.sourceFile, sourceUser: human(a) ? a.subjectId : null, sourceAgent: human(a) ? null : 'Commerce Workbuddy', excerpt: c.excerpt, verificationStatus: 'AI_INFERRED', confidence: null, capturedAt: now, validUntil: c.validUntil, revoked: false })
+        if (c.intakeSourceId) {
+          const source = s.get('intakeSource', c.intakeSourceId)
+          demand(source?.companyId === a.subjectId && source.source.kind === c.sourceType && source.source.text.includes(c.excerpt), 'source_binding_invalid', 409)
+          demand(c.sourceUrl === (source.source.kind === 'WEBSITE' ? source.source.reference : null)
+            && c.sourceFile === (source.source.kind === 'DOCUMENT' ? source.source.reference ?? source.source.name : null), 'source_binding_invalid', 409)
+        }
+        return s.put('evidence', { ...base(now), ownerId: a.subjectId, entityType: c.entityType, entityId: c.entityId, field: c.field, value: c.value, sourceType: c.sourceType, sourceUrl: c.sourceUrl, sourceFile: c.sourceFile, sourceUser: human(a) ? a.subjectId : null, sourceAgent: human(a) ? null : 'Commerce Workbuddy', excerpt: c.excerpt, verificationStatus: 'AI_INFERRED', confidence: null, capturedAt: now, validUntil: c.validUntil, revoked: false, ...(c.intakeSourceId ? { intakeSourceId: c.intakeSourceId } : {}) })
       }
       case 'evidence.revoke': {
         const r = s.require('evidence', c.id, c.expectedRevision); demand(r.ownerId === a.subjectId && human(a))

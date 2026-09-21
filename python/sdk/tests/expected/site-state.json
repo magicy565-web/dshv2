@@ -1,0 +1,1 @@
+{"type":"site/state","seq":1,"time":0,"data":{"sequence":1,"time":0,"tenantId":"snapshot-owner","siteId":"00000000-0000-4000-8000-000000000001","site":{"id":"00000000-0000-4000-8000-000000000001","tenantId":"snapshot-owner","name":"Reviewed website","managementVersion":1},"revisions":[],"jobs":[]}}

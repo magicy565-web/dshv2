@@ -752,6 +752,19 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/session/session-log-deepseek/src/types.ts:81`](../packages/session/session-log-deepseek/src/types.ts)
 
+### `site/*`
+
+<a id="sitestate--log-only"></a>
+
+#### `site/state` — log-only
+
+```ts persistence-catalog
+/** 完整已提交站点元数据；仅记录活动，不作为模型上下文或源码权威。 */
+'site/state': SiteStateChange
+```
+
+Source: [`packages/site/site/src/session.ts:39`](../packages/site/site/src/session.ts)
+
 ### `step/*`
 
 <a id="stepend--log-only"></a>

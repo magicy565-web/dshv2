@@ -13,6 +13,8 @@ The Sites workspace creates a website from reviewed company records, publishes a
 
 ## Company content
 
+The workspace separates **Website**, **Publish**, **Inquiries** and **Analytics**. Company records are the primary creation path; conversation and template creation are under **Other creation options**. The inquiry inbox has an empty state and a status filter.
+
 Choose **Review company records**, inspect the projected facts and contact details, and confirm their use on a public website. Creation compares the digest against a fresh projection; changed facts require another review. The initial website remains a private draft. Company name, description, business and contact details come from the submitted profile. Products require confirmed GEO records with current human fact verification and passing product readiness; confirmed successors exclude their predecessors. Only public product claims are included, and private evidence paths are omitted. Company qualifications require public, verified, unexpired string claims. Missing products and qualifications produce contact guidance, never sample facts. Layout labels support English and Chinese. Public content is reviewed separately for each language; local-model translation produces an editable draft. Language navigation and hreflang link only to existing counterparts.
 
 The installed `company-manufacturing@3.0.0` provider accepts explicit content and the industrial, precision or international style. It shares template version pinning, source-edit protection, revision history and ZIP export with the illustrative manufacturing provider. Publication freezes the reviewed content; later profile changes or fact expiry do not automatically modify the website. Review and generate a new draft when business facts change.
@@ -20,6 +22,8 @@ The installed `company-manufacturing@3.0.0` provider accepts explicit content an
 ## Local publication
 
 Select a saved static revision, choose **Review local publication**, inspect the website preview, confirm public content, then choose **Publish on this service**. Every HTML page is compiled from saved files before publication. Missing imports or an oversized compiled website reject preparation. A generation check prevents a stale publish or offline request from overwriting newer state. Publishing an earlier prepared revision restores that exact version. Editing a draft does not change the live website.
+
+Publication review lists the public address, generated pages, consultation and tracking configuration. These checks do not establish public HTTPS availability, model quality or receipt of analytics events.
 
 Public pages use `/sites-live/<site-id>/` on the current port. HTML, styles, scripts and embedded assets come from the prepared build; source receipts and private inbox records are not served. Pages use a sandboxed opaque origin without access to the editor's DOM or cookies. The response policy permits that site's inquiry route, its optional consultation route and the configured Umami origin; native form navigation is disabled. Static page compilation does not run generated scripts on the Host. Local publication supports HTML pages with bundled local dependencies; server-side Next.js execution, arbitrary asset downloads and dynamic server routes require another provider.
 
@@ -49,11 +53,25 @@ The validated limits are `maxTokens` (1024), `requestTimeoutMs` (60000), `maxQue
 
 ## Website operations
 
-Operations supports version-checked configuration, public content editing, industry/solution/case/comparison pages and translation drafts. Public product facts can generate industry, solution and comparison drafts; case outcomes require separately verified content. Refreshing company facts preserves editorial pages and removes translations pending review. Manually edited source refuses template replacement. Saving a draft and publishing it are separate operations; a changed company projection prompts review of published content.
+Operations supports version-checked configuration, public content editing, industry/solution/case/comparison pages and translation drafts. Products with customer, specification, characteristic or limitation facts can generate application and comparison drafts; the generator preserves reviewed pages and does not add matching industry pages. Case outcomes require separately verified content. Refreshing company facts preserves editorial pages and removes translations pending review. Manually edited source refuses template replacement. Saving a draft and publishing it are separate operations; a changed company projection prompts review of published content.
+
+Content and operating settings remain in the form when switching between the four site tabs. Unsaved edits block site replacement, revision switching, publication and workspace refresh; browser reload requests confirmation. Save or discard edits before continuing. Content or integration changes clear the public-content confirmation. Failed saves retain input for retry. A statistics-period change does not overwrite edited settings or adopt a newer settings version for saving. Switching to another application panel is blocked until edits are saved or discarded and content or settings operations finish. Drafts are not durable until saved; browser reload or closing the application can discard them after confirmation.
 
 Per-site settings control scheduled SearXNG searches, ntfy notifications and EspoCRM Lead synchronization; credentials remain in Host configuration. Manual AI citations, website-model tests, search results and unverified User-Agent crawler aggregates carry distinct labels. Inquiries create enterprise follow-up tasks with the same identifier; repeating the action returns the existing task. External delivery persists a claim first and never automatically retries uncertain acceptance. CRM can reconcile an existing Lead; operators can confirm retry after checking the destination. Deleting local inquiries does not delete external copies.
 
 `DSH_SITES_SERVICES_JSON` supplies `siteServices`; [site-services.ts](../src/site-services.ts) owns its fields. `retentionDays` controls periodic removal of search, citation, model-test and crawler evidence; inquiries, model Sessions and external services retain their own policies. The inquiry-count/Umami-visit ratio is not deduplicated visitor conversion. The [self-hosting guide](deploy/README.md) covers container composition, private access, acceptance and backup.
+
+## Management and review
+
+**Manage website** provides version-checked rename, archive, restore and deletion. Take a website offline and finish or cancel its pending work before archiving. Archived websites remain readable under **Show archived websites**. Permanent deletion removes source, versions, local builds, inquiries and local integration records; Session audit records and external hosting or CRM data remain independently managed. A site with a recorded Shopify publication cannot be deleted through this action.
+
+**Version comparison** shows added, removed and changed paths, text before/after, binary change notices and structured content differences. **Activity** reads the dedicated site Session and reconstructs its latest committed metadata, revision summaries and Shopify job state. Source versions remain authoritative.
+
+## Shopify publication
+
+Shopify publication accepts controlled page revisions, including a home page; it rejects standalone HTML/Next.js source projects. Connect a store through the theme authorization link, reopen the panel, select an unpublished theme, review every generated file and explicitly confirm the live-theme switch. The queued job fixes the revision, store, theme and file digest. **Refresh publication jobs** shows durable attempts and allows cancellation while queued. `siteShopify` configures request timeouts, polling, retry limits and jobs per tick; execution uses the existing `siteServices.pollIntervalMs` timer.
+
+The Host resolves OAuth credentials afresh for each attempt. The adapter uses Shopify’s [theme file mutation](https://shopify.dev/docs/api/admin-graphql/2026-01/mutations/themeFilesUpsert), waits for asynchronous writes, promotes the selected theme and checks its live role. Theme writes require `write_themes` and Shopify approval. Rate limits and retryable reads have bounded retries; ambiguous writes and interrupted running jobs require provider reconciliation instead of automatic resubmission. The current live theme is preserved until promotion; an uncertain promotion can already have taken effect remotely. Test doubles verify these transitions; live-store acceptance requires an authorized development store.
 
 ## Deployment configuration
 

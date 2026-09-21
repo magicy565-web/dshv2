@@ -22,6 +22,10 @@
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     },
+    "./session": {
+      "types": "./lib/types/session.d.ts",
+      "default": "./lib/types/session.js"
+    },
     "./memory": {
       "types": "./lib/types/memory.d.ts",
       "default": "./lib/types/memory.js"
@@ -51,6 +55,9 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-projection": "workspace:^",
+    "zod": "^4.4.3",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-shopify": "workspace:^",
     "esbuild": "0.28.1",

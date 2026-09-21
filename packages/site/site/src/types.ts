@@ -1,6 +1,6 @@
 /** Structured site editing vocabulary. This module contains types only. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ShopifyProductId, StoreConnectionId, TenantId } from '@deepseek-ai/dsh-shopify/types'
+import type { ShopifyProductId, ShopifyThemeId, StoreConnectionId, TenantId } from '@deepseek-ai/dsh-shopify/types'
 
 export type SiteId = Branded<'SiteId'>
 export type SiteRevisionId = Branded<'SiteRevisionId'>
@@ -13,6 +13,10 @@ export interface Site {
   readonly id: SiteId
   readonly tenantId: TenantId
   readonly name: string
+  /** Archived websites remain readable but reject edits and new publications. */
+  readonly archived?: boolean
+  /** Optimistic version for management operations; absent records start at zero. */
+  readonly managementVersion?: number
   /** Optional commerce connection; a site can exist and publish without a store. */
   readonly connectionId?: StoreConnectionId
   readonly currentRevisionId?: SiteRevisionId
@@ -99,12 +103,47 @@ export interface PublishJob {
   readonly revisionId: SiteRevisionId
   readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   readonly error?: string
+  /** Human-reviewed destination and rendered-file digest, fixed when queued. */
+  readonly target?: SitePublishTarget
+  readonly attempts?: readonly SitePublishAttempt[]
+}
+
+/** Explicit Shopify destination selected by the authenticated editor. */
+export interface SitePublishTarget {
+  readonly connectionId: StoreConnectionId
+  readonly themeId: ShopifyThemeId
+  readonly digest: string
+}
+
+/** One durable execution attempt; uncertain remote effects require reconciliation before retry. */
+export interface SitePublishAttempt {
+  readonly number: number
+  readonly startedAt: string
+  readonly status: 'running' | 'succeeded' | 'failed'
+  readonly finishedAt?: string
+  readonly error?: string
 }
 
 /** Complete site state exported by a single service instance. */
 export interface SiteSnapshot {
   readonly sites: readonly Site[]
   readonly revisions: readonly SiteRevision[]
+  readonly jobs: readonly PublishJob[]
+  /** Committed state changes awaiting transfer to the Session journal. */
+  readonly pendingChanges?: readonly SiteStateChange[]
+  readonly changeSequence?: number
+  /** Deletion receipts allow deployment-owned stores to finish cleanup after restart. */
+  readonly deletedSites?: readonly { readonly tenantId: TenantId; readonly siteId: SiteId }[]
+}
+
+/** Complete site metadata after one committed mutation; source bytes stay in revision storage. */
+export interface SiteStateChange {
+  readonly sequence: number
+  readonly time: number
+  readonly tenantId: TenantId
+  readonly siteId: SiteId
+  readonly site: Site | null
+  readonly revisions: readonly { readonly id: SiteRevisionId; readonly createdAt: string; readonly source: SiteRevision['source'] }[]
   readonly jobs: readonly PublishJob[]
 }
 

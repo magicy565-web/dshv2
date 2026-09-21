@@ -1,5 +1,6 @@
 /** Enterprise task editor; assignee labels do not grant resource access. */
 import { useEffect, useState } from 'react'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { Button, Input, Modal, IconPlusOutline16, IconEditOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { taskFields, taskId, taskHistorySchema } from './tasks-schema.ts'
@@ -63,7 +64,7 @@ export function TaskPanel({ tasks, goals, busy, t, command, initialGoalId = null
   }
   return <div>
     <div className="ent-toolbar">
-      {allowCreate && <Button icon={<IconPlusOutline16 />} variant="primary" disabled={busy} onClick={() => { setFailed(false); setEditor({ original: null, id: taskId.parse(crypto.randomUUID()), draft: { ...empty, goalId: initialGoalId } }) }}>{t('taskCreate')}</Button>}
+      {allowCreate && <Button icon={<IconPlusOutline16 />} variant="primary" disabled={busy} onClick={() => { setFailed(false); setEditor({ original: null, id: taskId.parse(randomUUID()), draft: { ...empty, goalId: initialGoalId } }) }}>{t('taskCreate')}</Button>}
       <Input aria-label={t('taskSearch')} placeholder={t('taskSearch')} value={search} onChange={event => setSearch(event.target.value)} />
       <label><input type="checkbox" checked={archived} onChange={event => setArchived(event.target.checked)} /> {t('taskShowArchived')}</label>
     </div>

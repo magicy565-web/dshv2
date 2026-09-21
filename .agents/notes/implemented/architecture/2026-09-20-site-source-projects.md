@@ -39,6 +39,12 @@ Self-hosted publication stores compiled HTML independently of the draft pointer 
 Company imports bind human review to a fresh content digest, project only currently publishable product facts and public verified qualifications, and preserve the resulting parameters in the template receipt. Inquiries are public input rather than model instructions: bounded JSON, retained request identities, per-site quotas and a private inbox separate receipt from email delivery. The receipt is returned only after the SQLite commit. Browser evidence covers anonymous visitors and a response lost after acceptance; retrying preserves one record.
 
 
+Site management uses a metadata version independent of the draft revision, so renaming cannot overwrite a concurrent source edit. Archive is reversible; deletion requires an offline archived site and leaves a durable cleanup receipt for the separate local databases. External hosting and CRM copies are not deleted implicitly.
+
+A source transaction and its activity outbox commit together. The enterprise journal appends complete metadata observations to a dedicated Session and acknowledges only flushed sequences; replay closes the crash window between append and acknowledgement. This avoids a cross-database transaction while keeping source storage authoritative. Audit Sessions survive site deletion and contain revision identifiers rather than source bodies. Local/cloud hosting observations remain separate from this core projection.
+
+Shopify queue records fix the reviewed destination and rendered-file digest. Credentials remain deployment-owned and are revalidated before execution. Only controlled page templates are accepted; converting arbitrary source would silently lose behavior. Failed and interrupted attempts remain durable, and ambiguous writes require remote reconciliation. Publishing to an unpublished theme keeps the existing storefront intact before promotion, but a lost promotion response still needs operator reconciliation.
+
 ## Alternatives considered
 
 **Keep Shopify mandatory.** Rejected because company websites, games and internal applications can exist without a store, and their source lifecycle belongs to the Workspace.

@@ -22,6 +22,8 @@ The [source-project decision](2026-09-20-site-source-projects.md) retains author
 
 The private operations panel reads Umami metrics and integrates SearXNG search, ntfy notifications and standard EspoCRM Lead APIs. External writes persist a claim before dispatch; uncertain receipts remain unknown until operator reconciliation or confirmed retry. Search results, manual citations, website-model tests and unverified User-Agent counts are distinct evidence, not a combined AI ranking. Separate enterprise deployments reuse existing authorization without adding shared multi-tenant accounts.
 
+The private workspace separates website editing, publication, inquiries and analytics while retaining forms between these tabs. Unsaved content and settings prevent replacing the selected site or revision. A mounted Sites panel registers a synchronous layout guard while edits or content/settings operations are pending; rejected global panel selections preserve the form and explain how to continue. React unmount and plugin disposal both release the guard. Failed saves preserve input; edits invalidate public-content confirmation. Statistics refresh preserves the settings revision reviewed by the user so an unrelated report cannot authorize overwriting newer settings. Editorial suggestions include selection facts and limitations, require more than an application label, and avoid parallel industry and solution pages with identical content.
+
 ## Alternatives considered
 
 **Implement another analytics database and dashboard.** Rejected because Umami already owns collection, attribution and reporting. A small integration avoids maintaining a competing metric implementation.

@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.client.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "incremental": false, "declaration": false, "declarationMap": false, "jsx": "react-jsx", "rootDir": "../.." },
+  "include": ["src/design/**/*.ts", "src/design/**/*.tsx", "src/profile-icons.tsx"]
+}

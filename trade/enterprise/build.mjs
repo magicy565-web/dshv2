@@ -3,7 +3,7 @@ import { build } from 'tsdown'
 import { fileURLToPath } from 'node:url'
 import { copyFile } from 'node:fs/promises'
 process.chdir(fileURLToPath(new URL('.', import.meta.url)))
-await build({ config: false, failOnWarn: true, entry: { index: 'src/host.ts' }, format: 'esm', platform: 'node', outDir: 'lib', dts: false, clean: true, outputOptions: { entryFileNames: 'index.js' }, deps: { alwaysBundle: ['zod', 'file-type', 'range-parser'], neverBundle: ['officeparser', 'esbuild'] } })
+await build({ config: false, failOnWarn: true, entry: { index: 'src/host.ts', 'ocr-worker': 'src/ocr-worker.ts', 'site-system': 'src/site-system.ts', 'site-system-defaults': 'src/site-system-defaults.ts' }, format: 'esm', platform: 'node', outDir: 'lib', dts: false, clean: true, outputOptions: { entryFileNames: '[name].js', paths: { '@deepseek-ai/dsh-session': '../../../packages/core/session/lib/index.js' } }, deps: { alwaysBundle: ['zod', 'file-type', 'range-parser'], neverBundle: ['@deepseek-ai/dsh-session', 'officeparser', 'esbuild', 'tesseract.js', 'pdfjs-dist', '@napi-rs/canvas'] } })
 await build({
   config: false, failOnWarn: true, entry: { client: 'src/client.tsx' }, format: 'cjs', platform: 'browser', outDir: 'lib', dts: false, clean: false,
   deps: { alwaysBundle: ['zod'], neverBundle: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] },

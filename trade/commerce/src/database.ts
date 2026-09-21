@@ -15,6 +15,7 @@ const migrations: Kind[][] = [
   ['performance', 'approval'],
   [],
   [],
+  ['onboarding', 'intakeSource'],
 ]
 /** Business database owner. Call close before removing its file. */
 export class CommerceDatabase {

@@ -1,7 +1,6 @@
-# Source-only workspace: reviewed content hashes; Git blob recovery snapshots remain pending.
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-trade-workspace-product-design.md
-2026-09-21-trade-workspace-product-design.md: 5e58e71b2b5549e67d28a1990fb5226698d5add1
-2026-09-21-trade-workspace-product-design.zh.md: e5dc8f62bc3c96664c01e5cd127cf48515dd355d
+2026-09-21-trade-workspace-product-design.md: 6b4e4c9b4b1cb38310ef6bc9ed409b85b54c3ccb
+2026-09-21-trade-workspace-product-design.zh.md: 0dfbb5f783fe3ef3b2eb37260748adbf087b64a3

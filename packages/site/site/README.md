@@ -29,11 +29,17 @@ Consumers enforce their complete request-byte limit before saving. `createSiteWi
 
 ## Publication lifecycle
 
-The memory provider queues jobs separately from execution. Duplicate queued or running requests for the same revision reuse the job; a site permits only one running publication. Queued jobs can be cancelled. Execution requires a configured publisher and records success only after it completes. Failure preserves the previous `publishedRevisionId`; edits made during publication retain their separate `currentRevisionId`.
+The memory provider queues jobs separately from execution. Duplicate queued or running requests for the same revision and destination reuse the job; a site permits only one running publication. Queued jobs can be cancelled. Execution requires a configured publisher and records success only after it completes. Failure preserves the previous `publishedRevisionId`; edits made during publication retain their separate `currentRevisionId`.
 
 Revision inputs and returned records are detached from stored state. Rollback creates a new revision without overwriting history. Revision and publication history use newest-insertion-first ordering, including records created in the same millisecond.
 
 Every edit after the first revision must name the current draft as its base; a missing or outdated base rejects the write. `content` resolves inherited pages, theme, product order and source files; explicit empty arrays clear a collection. `diff` compares resolved content. `preview` renders a selected stored page without publishing it. Rollback stores the target's complete content and stops inheritance from the draft it replaces. These reads reject revisions owned by another tenant or site.
+
+## Management and activity
+
+`manage` checks an optimistic metadata version before renaming, archiving or restoring a site. Archived sites retain readable revisions and reject edits and publication. Archive requires no pending publication; deletion additionally requires an archived site without a recorded successful publication. Enterprise hosting adds offline and in-flight-operation checks. A durable deletion receipt allows separate local stores to finish cleanup after restart.
+
+Each source transaction also commits a `site/state` outbox record containing metadata, revision summaries and publication jobs. `./session` validates these records and exports the replayable `site` projection. The enterprise journal flushes records to a dedicated Session before acknowledging them; a repeated delivery does not duplicate the recorded sequence. Events contain no source bodies and never enter model history. Local and cloud deployment details retain their own stores and panels.
 
 ## Editor HTTP
 
@@ -51,7 +57,7 @@ The `./sqlite` entry exports `SqliteSiteStateStore`; pass it as the third constr
 
 ## Known Limitations and Deferred Work
 
-- File snapshot saves are explicit; the optional SQLite adapter provides automatic commits. It stores the complete service snapshot per transaction and is intended for one active service per database, not distributed publication. Session events and UI projections remain unimplemented.
+- File snapshot saves are explicit; the optional SQLite adapter provides automatic commits. It stores the complete service snapshot per transaction and is intended for one active service per database, not distributed publication.
 - `createShopifySitePublisher` supplies the controlled adapter for an OAuth Shopify provider; callers must provide the selected theme id and an approved renderer.
 - JavaScript is accepted as project source and runs only in the visitor browser. Next.js execution, independent hosting, deployment settings and domain management require additional providers. The structured page renderer remains a controlled template.
 

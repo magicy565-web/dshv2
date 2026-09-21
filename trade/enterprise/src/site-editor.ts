@@ -4,27 +4,30 @@ import { join } from 'node:path'
 import { InMemorySiteService } from '../../../packages/site/site/src/memory.ts'
 import { SqliteSiteStateStore } from '../../../packages/site/site/src/sqlite.ts'
 import { createSiteHttpHandler } from '../../../packages/site/site/src/http.ts'
-import type { StoreConnectionId, TenantId } from '../../../packages/shopify/shopify/src/types.ts'
-import { siteTools } from './site-tools.ts'
+import { StoreConnectionId, ShopifyThemeId, type TenantId } from '../../../packages/shopify/shopify/src/types.ts'
 import { z } from 'zod'
 import { SiteHostingStore } from './site-hosting-store.ts'
 import { SiteHosting, SiteHostingError } from './site-hosting.ts'
 import { SiteId, SiteRevisionId } from '../../../packages/site/site/src/types.ts'
-import type { SiteHostingProvider } from './site-hosting-provider.ts'
+import { siteSystemConfig, SiteModuleId, type SitePublication } from './site-system.ts'
+import { bindSitePublicationModules } from './site-system-storage.ts'
 import { deploymentSchema } from './site-hosting-schema.ts'
 import { siteDomainCommand } from './site-domains-schema.ts'
 import { createTemplateSite } from './site-starter.ts'
 import { SiteTemplateService, SiteTemplateError } from '../../../packages/site/site/src/templates.ts'
-import { manufacturingProvider } from './site-template-provider.ts'
 import { siteTemplateInput, siteTemplateSelection } from './site-template-input.ts'
-import { companyTemplateProvider, companyTemplateId, companyTemplateVersion } from './site-company-template.ts'
+import { companyTemplateId, companyTemplateVersion } from './site-company-template.ts'
 import { siteCompanyContent, siteCompanyReview } from './site-company-schema.ts'
 import { suggestCompanyPages } from './site-company-pages.ts'
-import { SiteLocal, siteLocalConfig, localPublishCommand, localOfflineCommand, inquiryCommand, readSiteJson } from './site-local.ts'
+import { siteLocalConfig, localPublishCommand, localOfflineCommand, inquiryCommand, readSiteJson } from './site-local.ts'
 import { siteGrowth } from './site-growth-schema.ts'
 import { translateSiteContent, siteConsultation, type SiteAgentConfig } from './site-consultation.ts'
 import { SiteOperations } from './site-operations.ts'
 import { siteServicesConfig, type SiteServicesConfig } from './site-services.ts'
+import { SiteJournal } from './site-journal.ts'
+import { siteProjection, sitePublishTargetSchema } from '../../../packages/site/site/src/session.ts'
+import { SiteShopifyWorker, siteShopifyConfig, type SiteShopifyAccess } from './site-shopify.ts'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 
 const hostingBody = readSiteJson
 
@@ -34,37 +37,64 @@ const hostingBody = readSiteJson
  * @param publicOrigin - Configured origin used for preview links.
  * @param authorizeConnection - Store authorization owned by the enterprise deployment.
  * @param maxBodyBytes - Complete JSON body limit.
- * @param provider - Optional isolated cloud hosting provider.
+ * @param modules - Deployment-selected implementations and private hosting configuration.
  * @param companyReview - Deployment-owned projection of submitted company facts.
  * @param localLimits - Optional local publication quotas, resolved at this entry point.
  * @param agentConfig - Optional explicit model route for public consultations.
  * @param operations - Self-hosted service configuration and the existing enterprise task consumer.
+ * @param commerce - Authorized Shopify access and publication limits.
  * @returns Editor handler and storage disposer; drain requests before closing.
  */
-export function siteEditor(ctx: Context, directory: string, publicOrigin: string | undefined, authorizeConnection: (id: StoreConnectionId) => Promise<void>, maxBodyBytes: number, provider?: SiteHostingProvider, companyReview?: () => z.infer<typeof siteCompanyReview>, localLimits?: z.input<typeof siteLocalConfig>, agentConfig?: SiteAgentConfig, operations?: { services: SiteServicesConfig; followup?: (inquiry: { id: string; name: string; email: string; company: string; message: string }, input: { assignee: string; dueDate: string | null }) => unknown }) {
+export function siteEditor(ctx: Context, directory: string, publicOrigin: string | undefined, authorizeConnection: (id: StoreConnectionId) => Promise<void>, maxBodyBytes: number, modules?: { selection: z.input<typeof siteSystemConfig>; hosting?: unknown }, companyReview?: () => z.infer<typeof siteCompanyReview>, localLimits?: z.input<typeof siteLocalConfig>, agentConfig?: SiteAgentConfig, operations?: { services: SiteServicesConfig; followup?: (inquiry: { id: string; name: string; email: string; company: string; message: string }, input: { assignee: string; dueDate: string | null }) => unknown }, commerce?: { access: SiteShopifyAccess; config: z.infer<typeof siteShopifyConfig> }) {
+  const registry = ctx.get('siteSystems')
+  if (!registry) throw new Error('The Site module registry is not installed')
+  const system = registry.resolve(modules?.selection ?? {})
+  if (modules?.hosting !== undefined && !system.hosting) throw new Error('Hosting configuration requires a selected Site hosting module')
+  const provider = modules?.hosting === undefined ? undefined : system.hosting!(modules.hosting)
+  bindSitePublicationModules(directory, { publication: SiteModuleId(system.selection.publication), ...(provider && system.selection.hosting ? { hosting: SiteModuleId(system.selection.hosting) } : {}) })
   const storage = new SqliteSiteStateStore(join(directory, 'sites.sqlite'))
   let hostingStore: SiteHostingStore | undefined
-  let unregisterTemplate: (() => void) | undefined
-  let unregisterCompany: (() => void) | undefined
-  let localStore: SiteLocal | undefined
+  const unregisterTemplates: (() => void)[] = []
+  let unregisterProjection: (() => void) | undefined
+  let localStore: SitePublication | undefined
   let operationStore: SiteOperations | undefined
   try {
-    const service = new InMemorySiteService(ctx, undefined, storage)
+    const service = new InMemorySiteService(ctx, undefined, storage, system.rendering)
     const templates = new SiteTemplateService(ctx)
-    unregisterTemplate = templates.register(manufacturingProvider)
-    unregisterCompany = templates.register(companyTemplateProvider)
-    const local = new SiteLocal(join(directory, 'site-local.sqlite'), service, siteLocalConfig.parse(localLimits ?? {}), agentConfig ? { answer: siteConsultation(ctx, agentConfig), config: agentConfig } : undefined)
+    for (const template of system.templates) ctx.effect(() => { const dispose = templates.register(template); unregisterTemplates.push(dispose); return dispose })
+    const local = system.publication(join(directory, 'site-local.sqlite'), service, siteLocalConfig.parse(localLimits ?? {}), agentConfig ? { answer: siteConsultation(ctx, agentConfig), config: agentConfig } : undefined)
     localStore = local
     const operator = new SiteOperations(join(directory, 'site-operations.sqlite'), service, local, operations?.services ?? siteServicesConfig.parse({}))
     operationStore = operator
     hostingStore = new SiteHostingStore(join(directory, 'site-hosting.sqlite'))
     const hosting = new SiteHosting(service, hostingStore, provider)
     const tenantId = 'enterprise' as TenantId
-    return {
-      tick: (signal: AbortSignal) => operator.tick(service.list(tenantId).map(site => ({ tenantId, siteId: site.id })), signal),
+    const persistence = ctx.get('sessionPersistence')
+    const journal = persistence ? new SiteJournal(service, persistence) : undefined
+    unregisterProjection = ctx.get('sessionProjections')?.register(siteProjection)
+    const shopify = commerce ? new SiteShopifyWorker(service, commerce.access, commerce.config) : undefined
+    const activeRequests = new Map<string, number>()
+    let backgroundActive = false
+    const cleanup = (siteId: import('../../../packages/site/site/src/types.ts').SiteId) => { local.deleteSite(siteId); operator.deleteSite(siteId); hostingStore!.deleteSite(siteId) }
+    const cleanDeleted = () => { for (const deleted of service.snapshot().deletedSites ?? []) cleanup(deleted.siteId) }
+    cleanDeleted()
+    const editor = {
+      tick: async (signal: AbortSignal) => {
+        system.assertAvailable()
+        backgroundActive = true
+        try {
+          cleanDeleted()
+          const specs = service.list(tenantId).filter(site => !site.archived).map(site => ({ tenantId, siteId: site.id }))
+          await shopify?.tick(specs, signal)
+          await journal?.flush()
+          await operator.tick(specs, signal)
+        }
+        finally { backgroundActive = false }
+      },
       sitemapUrls: (origin: string) => local.sitemapUrls(publicOrigin ?? origin),
-      tools: siteTools(service, tenantId, maxBodyBytes, hosting, templates),
+      tools: system.generation(service, tenantId, maxBodyBytes, hosting, templates).map(tool => ({ ...tool, execute: (args: Parameters<typeof tool.execute>[0], execution: Parameters<typeof tool.execute>[1]) => { system.assertAvailable(); return tool.execute(args, execution) } })),
       publicFetch: async (request: Request) => {
+        try { system.assertAvailable() } catch { return Response.json({ error: 'Selected Site module is unavailable' }, { status: 503 }) }
         const match = new URL(request.url).pathname.match(/^\/sites-live\/([^/]+)(\/.*)?$/)
         if (!match || !z.string().uuid().safeParse(match[1]).success) return new Response('Not found', { status: 404 })
         if (!match[2]) return Response.redirect(new URL(`/sites-live/${match[1]}/`, request.url), 308)
@@ -73,15 +103,43 @@ export function siteEditor(ctx: Context, directory: string, publicOrigin: string
         if (request.method === 'GET' && response.status === 200) operator.recordCrawler(spec, request.headers.get('user-agent') ?? '')
         return response
       },
-      fetch: async (request: Request, route: string) => {
+      handle: async (request: Request, route: string) => {
         const handler = createSiteHttpHandler(service, {
           authenticate: async () => tenantId,
           authorizeConnection: async (_tenant, id) => authorizeConnection(id),
           publicOrigin: publicOrigin ?? new URL(request.url).origin, maxBodyBytes,
+          beforeManage: spec => {
+            if (backgroundActive || (activeRequests.get(spec.siteId) ?? 0) > 1 || local.state(spec).online) throw new SiteHostingError(409, 'Take the site offline and wait for pending work before managing it')
+            hosting.assertManageable(spec)
+          },
+          onDeleted: spec => cleanup(spec.siteId),
         })
         const query = new URL(request.url).searchParams
         const siteId = query.get('siteId')
         const action = query.get('action')
+        if (route === '/sites' && action === 'system') return Response.json({ selected: system.selection, installed: registry.list() }, { status: request.method === 'GET' ? 200 : 405, headers: { 'cache-control': 'no-store' } })
+        if (route === '/sites' && siteId && ['shopify-options', 'shopify-review', 'publish'].includes(action ?? '')) {
+          try {
+            const spec = { tenantId, siteId: SiteId(z.string().uuid().parse(siteId)) }
+            if (!service.get(spec)) throw new SiteHostingError(404, 'Site not found')
+            if (!shopify) throw new SiteHostingError(503, 'Shopify publication is not configured')
+            if (request.method !== (action === 'shopify-options' ? 'GET' : 'POST')) return Response.json({ error: 'Method not allowed' }, { status: 405 })
+            if (action === 'shopify-options') return Response.json(await shopify.options(query.has('connectionId') ? StoreConnectionId(query.get('connectionId')!) : undefined, request.signal), { headers: { 'cache-control': 'no-store' } })
+            const body = await hostingBody(request, maxBodyBytes)
+            if (action === 'shopify-review') {
+              const input = z.object({ revisionId: z.string().uuid(), connectionId: z.string().min(1), themeId: z.string().regex(/^gid:\/\/shopify\/OnlineStoreTheme\/\d+$/) }).strict().parse(body)
+              return Response.json(await shopify.review(spec, SiteRevisionId(input.revisionId), { connectionId: StoreConnectionId(input.connectionId), themeId: ShopifyThemeId(input.themeId) }, request.signal), { headers: { 'cache-control': 'no-store' } })
+            }
+            const input = z.object({ revisionId: z.string().uuid(), expectedRevisionId: z.string().uuid(), target: sitePublishTargetSchema, confirmed: z.literal(true) }).strict().parse(body)
+            return Response.json(await shopify.queue(spec, SiteRevisionId(input.revisionId), input.target, SiteRevisionId(input.expectedRevisionId), request.signal), { status: 202, headers: { 'cache-control': 'no-store' } })
+          } catch (error) { return Response.json({ error: error instanceof Error ? error.message : 'Shopify request failed' }, { status: error instanceof SiteHostingError ? error.status : error instanceof z.ZodError ? 400 : 502 }) }
+        }
+        if (route === '/sites' && siteId && action === 'activity') {
+          if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405 })
+          if (!journal) return Response.json({ error: 'Session persistence is unavailable' }, { status: 503 })
+          return Response.json(await journal.read({ tenantId, siteId: SiteId(siteId) }), { headers: { 'cache-control': 'no-store' } })
+        }
+        if (siteId && request.method === 'POST' && service.get({ tenantId, siteId: SiteId(siteId) })?.archived && !['manage', 'delete', 'inquiry'].includes(action ?? '')) return Response.json({ error: 'Restore the archived website before making changes' }, { status: 409 })
         if (route === '/sites' && siteId && action?.startsWith('ops-')) {
           const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } })
           try {
@@ -238,11 +296,18 @@ export function siteEditor(ctx: Context, directory: string, publicOrigin: string
         const normalized = route === '/sites' && siteId ? `/sites/${siteId}${action ? `/${action}` : ''}` : route
         return handler(request, normalized)
       },
-      close: () => { unregisterCompany?.(); unregisterTemplate?.(); operationStore?.close(); localStore?.close(); hostingStore?.close(); storage.close() },
+      close: async () => { try { await journal?.flush() } finally { unregisterProjection?.(); for (const dispose of unregisterTemplates) dispose(); operationStore?.close(); localStore?.close(); hostingStore?.close(); storage.close() } },
     }
+    return { ...editor, fetch: async (request: Request, route: string) => {
+      try { system.assertAvailable() } catch { return Response.json({ error: 'Selected Site module is unavailable; reload the enterprise plugin' }, { status: 503 }) }
+      const id = new URL(request.url).searchParams.get('siteId') ?? ''
+      activeRequests.set(id, (activeRequests.get(id) ?? 0) + 1)
+      try { return await editor.handle(request, route) }
+      finally { const remaining = (activeRequests.get(id) ?? 1) - 1; if (remaining) activeRequests.set(id, remaining); else activeRequests.delete(id) }
+    } }
   } catch (error) {
-    unregisterTemplate?.()
-    unregisterCompany?.()
+    unregisterProjection?.()
+    for (const dispose of unregisterTemplates) dispose()
     localStore?.close()
     operationStore?.close()
     hostingStore?.close()

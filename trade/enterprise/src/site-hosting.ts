@@ -42,9 +42,17 @@ export class SiteHosting {
     this.sites.resolve(spec)
     return { configured: Boolean(this.provider), ...this.store.get(spec.siteId) }
   }
+  /** Refuse removal while provider work or online/uncertain routing still exists.
+   * @param spec - Authorized site being archived or deleted.
+   */
+  assertManageable(spec: SiteSpec): void {
+    const state = this.get(spec)
+    if (this.active.has(spec.siteId) || state.pendingPromotionId || state.pendingAvailability || state.pendingDomain || state.deployments.some(item => ['submitting', 'unknown', 'building'].includes(item.status)) || (state.liveDeploymentId && state.availability !== 'offline')) throw new SiteHostingError(409, 'Finish cloud operations and take the website offline before managing it')
+  }
 
   private async operation<T>(spec: SiteSpec, run: (provider: SiteHostingProvider) => Promise<T>): Promise<T> {
     this.sites.resolve(spec)
+    if (this.sites.get(spec)?.archived) throw new SiteHostingError(409, 'Restore the archived website before changing hosting')
     if (!this.provider) throw new SiteHostingError(503, 'Independent hosting is not configured')
     if (this.active.has(spec.siteId)) throw new SiteHostingError(409, 'A hosting operation is already active')
     this.active.add(spec.siteId)

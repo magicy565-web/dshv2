@@ -1,0 +1,8 @@
+version: 1
+scenario: trade-mcp-empty
+profile: headless
+composition: trade-mcp
+recording: authored
+header:
+  class: trade-mcp
+  pin: true

@@ -3,8 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { SiteService, SiteSpec } from '../../../packages/site/site/src/index.ts'
-import { SiteRevisionId } from '../../../packages/site/site/src/types.ts'
-import { renderStaticPreview } from '../../../packages/site/site/src/preview.ts'
+import { SiteRevisionId, type SiteId } from '../../../packages/site/site/src/types.ts'
 import { SiteHostingError } from './site-hosting.ts'
 import { siteGrowth, siteQuestion, inquiryAttribution } from './site-growth-schema.ts'
 import { siteCompanyContent } from './site-company-schema.ts'
@@ -53,6 +52,16 @@ export async function readSiteJson(request: Request, limit: number): Promise<unk
 /** Persistent exact-build publication and inquiry reception owned by one enterprise editor. */
 export class SiteLocal {
   private readonly db: DatabaseSync
+  /** Purge deployment data after the source service has committed deletion.
+   * @param siteId - Identity from a durable deletion receipt.
+   */
+  deleteSite(siteId: SiteId): void {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const table of ['publication', 'builds', 'inquiries', 'consultation_usage']) this.db.prepare(`DELETE FROM ${table} WHERE site_id=?`).run(siteId)
+      this.db.exec('COMMIT')
+    } catch (error) { this.db.exec('ROLLBACK'); throw error }
+  }
   /** Open an independent database before registering HTTP routes.
    * @param path - Database path or :memory: for isolated fixtures.
    * @param sites - Source revision authority.
@@ -87,6 +96,7 @@ export class SiteLocal {
    * @returns Build identity and the observed publication generation.
    */
   async prepare(spec: SiteSpec, revisionId: SiteRevisionId, publicOrigin = 'http://localhost') {
+    if (this.sites.get(spec)?.archived) throw new SiteHostingError(409, 'Restore the archived website before preparing publication')
     const state = this.state(spec)
     const artifact = this.sites.build(spec, revisionId)
     const read = (path: string) => {
@@ -100,7 +110,7 @@ export class SiteLocal {
     const pages: Record<string, string> = {}
     let bytes = 0
     for (const file of artifact.files.filter(file => file.contentType.startsWith('text/html'))) {
-      const response = await renderStaticPreview(artifact, `/${file.path}`, path => `/sites-live/${spec.siteId}${path}`, this.limits.maxPublicationBytes)
+      const response = await this.sites.renderArtifact(artifact, `/${file.path}`, path => `/sites-live/${spec.siteId}${path}`, this.limits.maxPublicationBytes)
       const html = discoverableHtml(await response.text(), file.path, publicUrl, growth)
       bytes += Buffer.byteLength(html)
       if (bytes > this.limits.maxPublicationBytes) throw new SiteHostingError(413, 'Compiled website exceeds the publication limit')
@@ -116,6 +126,8 @@ export class SiteLocal {
     if (bytes > this.limits.maxPublicationBytes) throw new SiteHostingError(413, 'Compiled website exceeds the publication limit')
     const digest = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
     const build = { ...payload, digest }
+    this.sites.resolve(spec)
+    if (this.sites.get(spec)?.archived) throw new SiteHostingError(409, 'Website was archived while preparing publication')
     this.db.prepare('INSERT OR IGNORE INTO builds VALUES(?,?,?)').run(spec.siteId, digest, JSON.stringify(build))
     return { revisionId, digest, expectedGeneration: state.generation, pageCount: Object.keys(pages).length, bytes, publicUrl, analytics: Boolean(growth.analytics), agent: growth.agent }
   }
@@ -125,6 +137,7 @@ export class SiteLocal {
    * @returns Committed publication state.
    */
   publish(spec: SiteSpec, input: z.infer<typeof localPublishCommand>) {
+    if (this.sites.get(spec)?.archived) throw new SiteHostingError(409, 'Restore the archived website before publishing')
     const row = this.db.prepare('SELECT data FROM builds WHERE site_id=? AND digest=?').get(spec.siteId, input.digest)
     if (!row || staged.parse(JSON.parse(String(row.data))).revisionId !== input.revisionId) throw new SiteHostingError(409, 'Review this exact build before publishing')
     return this.change(spec, input.expectedGeneration, { revisionId: input.revisionId, digest: input.digest, online: true })

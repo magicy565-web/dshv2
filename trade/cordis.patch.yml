@@ -1,6 +1,11 @@
 # Deployment-owned extension layer over the upstream Web profile.
 # Keep the standard preset until the trade preset has recorded-session coverage.
 - insert:
+    - id: trade-site-system
+      name: './enterprise/lib/site-system.js'
+    - id: trade-site-defaults
+      name: './enterprise/lib/site-system-defaults.js'
+      config: {}
     - id: trade-enterprise
       name: './enterprise/lib/index.js'
       config:
@@ -13,10 +18,17 @@
         maxDecompressedBytes: 134217728
         maxArchiveEntries: 5000
         maxTableCells: 250000
+        ocr:
+          language: eng+chi_sim
+          timeoutMs: 120000
+          maxPages: 30
+          maxPixels: 16000000
+          renderScale: 2
         maxComputerBodyBytes: 1048576
         computerRoutines: !!js "JSON.parse(process.env.DSH_COMPUTER_ROUTINES || '[]')"
         commerce: !!js "process.env.DSH_COMMERCE_LINK_SECRET_JSON ? JSON.parse(process.env.DSH_COMMERCE_LINK_SECRET_JSON) : undefined"
         siteHosting: !!js "process.env.DSH_SITES_VERCEL_TOKEN ? { token: process.env.DSH_SITES_VERCEL_TOKEN, teamId: process.env.DSH_SITES_VERCEL_TEAM_ID, requestTimeoutMs: 30000, maxResponseBytes: 2097152, maxDeploymentBytes: 16777216, recoveryPageSize: 100, maxRecoveryPages: 20, maxDomains: 50, maxBuildLogEvents: 100, maxDiagnosticCharacters: 20000 } : undefined"
+        siteSystem: !!js "JSON.parse(process.env.DSH_SITES_SYSTEM_JSON || '{}')"
         externalAgentToken: !!js "process.env.DSH_SUPPLIER_AGENT_TOKEN"
         publicBaseUrl: !!js "process.env.DSH_SITES_PUBLIC_URL"
         siteAgent: !!js "process.env.DSH_SITES_AGENT_JSON ? JSON.parse(process.env.DSH_SITES_AGENT_JSON) : undefined"

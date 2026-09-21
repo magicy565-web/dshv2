@@ -61,4 +61,8 @@ export class SiteHostingStore {
 
   /** Close this store after the owning HTTP adapter drains its requests. */
   close(): void { this.database.close() }
+  /** Remove local history after a durable site deletion; remote resources remain provider-owned.
+   * @param siteId - Identity from the source service's deletion receipt.
+   */
+  deleteSite(siteId: SiteId): void { this.database.prepare('DELETE FROM hosting WHERE site_id=?').run(siteId) }
 }

@@ -8,6 +8,120 @@ import { productFixture } from './geo-fixture.mjs'
 import { supplierFixture } from './supplier-fixture.mjs'
 import { Context } from '@deepseek-ai/cordis'
 import { Readable } from 'node:stream'
+import { loadImage, PDFDocument } from '@napi-rs/canvas'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
+
+test('OCR limits preserve the original and persist an actionable failure without partial text', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-ocr-limit-'))
+  const harness = await mount(directory, { maxFileBytes: 1000000, maxTotalBytes: 4000000, ocr: { maxPixels: 100, maxPages: 1 } })
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  const content = await readFile(new URL('./fixtures/ocr-catalog.png', import.meta.url))
+  const uploaded = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'scan.png' }, body: content })
+  const asset = (await uploaded.json()).files[0]
+  const response = await harness.request('/sources/recognize', { method: 'POST', body: JSON.stringify({ id: asset.id }) })
+  assert.equal(response.status, 422)
+  assert.deepEqual(await response.json(), { error: 'ocrLimit' })
+  const saved = (await (await harness.request('')).json()).files[0]
+  assert.equal(saved.ocrError, 'ocrLimit')
+  assert.equal(saved.ocr, undefined)
+  assert.equal(saved.knowledgeStatus, 'unsupported')
+  assert.deepEqual(Buffer.from(await (await harness.request(`/file?id=${asset.id}`)).arrayBuffer()), content)
+  const pdf = new PDFDocument()
+  for (let page = 0; page < 2; page++) { pdf.beginPage(5, 5); pdf.endPage() }
+  const uploadedPdf = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'pages.pdf' }, body: pdf.close() })
+  const pdfId = (await uploadedPdf.json()).files.find(file => file.name === 'pages.pdf').id
+  const pageLimit = await harness.request('/sources/recognize', { method: 'POST', body: JSON.stringify({ id: pdfId }) })
+  assert.equal(pageLimit.status, 422)
+  assert.deepEqual(await pageLimit.json(), { error: 'ocrLimit' })
+})
+
+for (const stop of ['abort', 'timeout']) test(`${stop} during OCR language initialization releases the worker before allowing another operation`, { timeout: 30000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-ocr-abort-'))
+  const server = createServer()
+  let harness
+  t.after(async () => {
+    await harness?.dispose()
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  harness = await mount(directory, { maxFileBytes: 1000000, maxTotalBytes: 4000000, ocr: { language: 'eng', timeoutMs: stop === 'timeout' ? 2000 : 120000, langPath: `http://127.0.0.1:${server.address().port}` } })
+  const content = await readFile(new URL('./fixtures/ocr-catalog.png', import.meta.url))
+  const uploaded = await harness.request('/upload', { method: 'POST', headers: { 'x-file-name': 'scan.png' }, body: content })
+  const id = (await uploaded.json()).files[0].id
+  const controller = new AbortController()
+  const reached = stop === 'abort' ? once(server, 'request') : null
+  const pending = harness.request('/sources/recognize', { method: 'POST', body: JSON.stringify({ id }), signal: controller.signal })
+  if (reached) {
+    await reached
+    const competing = await harness.request('/delete', { method: 'POST', body: JSON.stringify({ id }) })
+    assert.equal(competing.status, 409)
+    controller.abort()
+  }
+  const response = await pending
+  if (stop === 'timeout') {
+    assert.equal(response.status, 422)
+    assert.deepEqual(await response.json(), { error: 'ocrTimeout' })
+    assert.equal((await (await harness.request('')).json()).files[0].ocrError, 'ocrTimeout')
+  }
+  assert.equal((await (await harness.request('')).json()).files[0].ocr, undefined)
+  assert.equal((await harness.request('/delete', { method: 'POST', body: JSON.stringify({ id }) })).status, 200)
+})
+
+test('local OCR preserves originals and native citations, records PDF pages and requires human review', { skip: !process.env.DSH_ENTERPRISE_OCR_LANG_PATH, timeout: 180000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-ocr-'))
+  let harness = await mount(directory, { maxFileBytes: 1000000, maxTotalBytes: 4000000, ocr: { language: 'eng+chi_sim', langPath: process.env.DSH_ENTERPRISE_OCR_LANG_PATH } })
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  const post = (path, body) => harness.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const image = await readFile(new URL('./fixtures/ocr-catalog.png', import.meta.url))
+  const canvas = await loadImage(image)
+  const pdf = new PDFDocument()
+  for (let page = 0; page < 2; page++) {
+    const context = pdf.beginPage(1100, 400)
+    context.drawImage(canvas, 0, 0)
+    context.font = '36px Arial'; context.fillText('Native heading', 45, 380)
+    pdf.endPage()
+  }
+  for (const [name, content] of [['catalog.png', image], ['scan.pdf', pdf.close()]]) {
+    const importId = crypto.randomUUID(), path = `Acme/${name}`
+    await post('/sources/import', { id: importId, files: [{ path, size: content.length }] })
+    const uploaded = await harness.request(`/sources/upload?${new URLSearchParams({ importId, path })}`, { method: 'POST', headers: { 'x-file-name': name }, body: content })
+    assert.equal(uploaded.status, 201)
+    const asset = (await uploaded.json()).files.find(file => file.name === name)
+    const native = asset.knowledgeStatus === 'ready' ? await (await harness.request(`/supplier/document?fileId=${asset.id}&chunk=1`)).json() : null
+    const before = await harness.request(`/file?id=${asset.id}&download=1`)
+    assert.deepEqual(Buffer.from(await before.arrayBuffer()), content)
+    const response = await post('/sources/recognize', { id: asset.id })
+    assert.equal(response.status, 200, JSON.stringify(await response.clone().json()))
+    const recognized = (await response.json()).files.find(file => file.id === asset.id)
+    assert.equal(recognized.ocr.reviewedAt, null)
+    assert.equal(recognized.ocr.pages, name.endsWith('.pdf') ? 2 : 1)
+    const review = await (await harness.request(`/sources/recognition?id=${asset.id}`)).json()
+    assert.match(review.chunks.map(chunk => chunk.text).join(' '), /AX-1/)
+    assert.match(review.chunks.map(chunk => chunk.text).join(' '), /steel/i)
+    assert.match(review.chunks.map(chunk => chunk.text).join(' ').replaceAll(' ', ''), /中国企业资料/)
+    if (native) assert.deepEqual(await (await harness.request(`/supplier/document?fileId=${asset.id}&chunk=1`)).json(), native)
+    assert.deepEqual([...new Set(review.chunks.map(chunk => chunk.page))], name.endsWith('.pdf') ? [1, 2] : [1])
+    const exec = { signal: new AbortController().signal }
+    const sources = args => harness.tools.get('enterprise_sources').execute(args, exec)
+    let chunk = 1
+    while (chunk) { const result = await sources({ action: 'read', fileId: asset.id, chunk }); assert.match(result.chunks.at(-1).citation, /OCR第\d页/); chunk = result.nextChunk }
+    const assessment = { action: 'assess', importId, path, disposition: 'used', reason: 'Reviewed catalog' }
+    await assert.rejects(sources(assessment), /ocrReviewRequired/)
+    assert.equal((await post('/sources/recognize', { id: asset.id, receiptId: crypto.randomUUID() })).status, 409)
+    assert.equal((await post('/sources/recognize', { id: asset.id, receiptId: recognized.ocr.id })).status, 200)
+    await sources(assessment)
+    const repeated = (await (await post('/sources/recognize', { id: asset.id })).json()).files.find(file => file.id === asset.id)
+    assert.equal(repeated.ocr.id, recognized.ocr.id)
+    assert.deepEqual(Buffer.from(await (await harness.request(`/file?id=${asset.id}&download=1`)).arrayBuffer()), content)
+  }
+  await harness.dispose()
+  harness = await mount(directory)
+  const persisted = await (await harness.request('')).json()
+  assert.ok(persisted.files.every(file => file.ocr.reviewedAt))
+})
 
 const profile = {
   name: 'Acme Export',

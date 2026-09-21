@@ -13,8 +13,8 @@ This package defines the tenant-scoped Shopify service seam. It keeps store mode
 
 ## Known Limitations and Deferred Work
 
-- No Shopify HTTP client, OAuth callback handler, token encryption, webhook registration, or settlement behavior is included yet.
-- Product and theme projections intentionally exclude raw Shopify identifiers from consumer-facing records.
+- `GraphqlStoreProvider` reads catalog and themes through `ShopifyGraphqlClient`. OAuth callbacks, encrypted credentials and queue execution belong to the enterprise Host; this package does not operate settlement.
+- Theme publication accepts approved text paths and `OnlineStoreTheme` IDs, waits for the returned write job, promotes the theme and verifies its live role. Async writes require explicit polling limits and cancellation; the enterprise worker sets one transport attempt so ambiguous mutations require reconciliation. Development-store publication remains a separate acceptance check.
 
 ## Model Experience
 

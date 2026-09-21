@@ -1,0 +1,5 @@
+# Source-only workspace: reviewed content hashes; Git blob recovery snapshots remain pending.
+# Bilingual-pair consistency record (docs/i18n/README.md).
+# Re-record in a Git checkout with: pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-21-trade-mcp-intake.md
+2026-09-21-trade-mcp-intake.md: 65c062ef370392a0e219375ad982691a28faf5f6
+2026-09-21-trade-mcp-intake.zh.md: fd354da493cf5d41aa15341773294c3f81866a96

@@ -1,7 +1,7 @@
 /** Private website monitoring and integration receipts; analytics remains owned by Umami. */
 import { DatabaseSync } from 'node:sqlite'
-import type { SiteService, SiteSpec } from '../../../packages/site/site/src/index.ts'
-import type { SiteLocal } from './site-local.ts'
+import type { SiteService, SiteSpec, SiteId } from '../../../packages/site/site/src/index.ts'
+import type { SitePublication } from './site-system.ts'
 import { SiteHostingError } from './site-hosting.ts'
 import { siteServices, type SiteServicesConfig } from './site-services.ts'
 import { siteCitation, siteOperationsSettings } from './site-operations-schema.ts'
@@ -9,9 +9,19 @@ import { siteCitation, siteOperationsSettings } from './site-operations-schema.t
 /** Owns only site operations; company records, tasks, source and Umami metrics keep their existing authorities. */
 export class SiteOperations {
   private readonly db: DatabaseSync
+  /** Purge local integration data; destination-owned deliveries are retained externally.
+   * @param siteId - Identity from a durable site deletion receipt.
+   */
+  deleteSite(siteId: SiteId): void {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const table of ['settings', 'crawlers', 'observations', 'deliveries']) this.db.prepare(`DELETE FROM ${table} WHERE site_id=?`).run(siteId)
+      this.db.exec('COMMIT')
+    } catch (error) { this.db.exec('ROLLBACK'); throw error }
+  }
   private readonly services: ReturnType<typeof siteServices>
   private readonly activeDeliveries = new Set<string>()
-  constructor(path: string, private readonly sites: SiteService, private readonly local: SiteLocal, private readonly config: SiteServicesConfig) {
+  constructor(path: string, private readonly sites: SiteService, private readonly local: SitePublication, private readonly config: SiteServicesConfig) {
     this.services = siteServices(config)
     this.db = new DatabaseSync(path)
     this.db.exec('PRAGMA busy_timeout=5000')

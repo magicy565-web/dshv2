@@ -7,6 +7,8 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./site-system": "./lib/site-system.js",
+    "./site-system-defaults": "./lib/site-system-defaults.js",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -24,12 +26,18 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "npm run build && npm run test:sites && node --test test/*.test.mjs",
+    "build:design": "node build-design.mjs",
+    "typecheck:design": "tsc -p tsconfig.design.json",
+    "test": "npm run build && npm run build:design && npm run test:sites && node --test test/*.test.mjs",
+    "test:design": "npm run build:design && node --test test/design-browser.test.mjs",
     "test:sites": "vitest run --config vitest.sites.config.ts",
     "test:sites:model": "node --test test/sites-model.e2e.mjs",
     "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.9",
+    "pdfjs-dist": "6.2.108",
+    "tesseract.js": "7.0.0",
     "esbuild": "0.28.1",
     "file-type": "21.3.4",
     "officeparser": "7.8.0",
@@ -50,8 +58,10 @@
     "@deepseek-ai/cordis": "4.0.2",
     "@types/range-parser": "1.2.7",
     "@types/react": "18.3.1",
+    "@types/react-dom": "18.3.7",
     "fflate": "0.8.3",
-    "react": "18.3.1"
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "overrides": {
     "pdfjs-dist": "6.2.108"

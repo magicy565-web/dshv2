@@ -14,6 +14,8 @@ export async function verifySiteCreation(page, evidence) {
   try {
     await guide.waitFor()
     assert.equal(await guide.getByRole('listitem').count(), 3)
+    assert.equal(await page.getByRole('button', { name: '对话建站', exact: true }).isVisible(), false)
+    await page.getByText('其他创建方式', { exact: true }).click()
     const create = page.getByRole('button', { name: '对话建站', exact: true })
     assert.equal(await create.isDisabled(), true)
     await page.getByLabel('描述你想创建的网站', { exact: true }).fill('A company website for international buyers')

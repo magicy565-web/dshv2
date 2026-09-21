@@ -1,0 +1,9 @@
+version: 1
+scenario: enterprise-ocr-draft
+profile: headless
+composition: enterprise-folder
+recording: authored
+header:
+  class: enterprise-folder
+workspace:
+  setup: enterprise-documents

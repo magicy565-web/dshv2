@@ -1,6 +1,7 @@
 /** File-input validation for site records and their ownership references. */
 import type { SiteSnapshot, SiteChangeSet } from './types.ts'
 import { assertValidSiteChangeSet } from './validation.ts'
+import { siteStateChangeSchema, sitePublishTargetSchema, sitePublishAttemptSchema } from './session.ts'
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -66,12 +67,33 @@ export function parseSiteChangeSet(value: unknown): SiteChangeSet {
  */
 export function parseSiteSnapshot(value: unknown): SiteSnapshot {
   if (!object(value) || !Array.isArray(value.sites) || !Array.isArray(value.revisions) || !Array.isArray(value.jobs)) throw new Error('invalid site snapshot')
+  if (value.changeSequence !== undefined && (!Number.isSafeInteger(value.changeSequence) || Number(value.changeSequence) < 0)) throw new Error('invalid site snapshot: change sequence')
+  if (value.pendingChanges !== undefined) {
+    if (!Array.isArray(value.pendingChanges)) throw new Error('invalid site snapshot: pending changes')
+    let previous = 0
+    for (const raw of value.pendingChanges) {
+      const change = siteStateChangeSchema.parse(raw)
+      if (change.sequence <= previous || change.sequence > Number(value.changeSequence ?? 0)) throw new Error('invalid site snapshot: change order')
+      previous = change.sequence
+    }
+  }
   const siteIds = new Set<string>()
   for (const site of value.sites) {
     if (!object(site) || !text(site.id) || !text(site.tenantId) || !optionalText(site.connectionId) || !text(site.name)
-      || !optionalText(site.currentRevisionId) || !optionalText(site.publishedRevisionId)) throw new Error('invalid site snapshot: site')
+      || !optionalText(site.currentRevisionId) || !optionalText(site.publishedRevisionId)
+      || (site.archived !== undefined && typeof site.archived !== 'boolean')
+      || (site.managementVersion !== undefined && (!Number.isSafeInteger(site.managementVersion) || Number(site.managementVersion) < 0))) throw new Error('invalid site snapshot: site')
     if (siteIds.has(site.id)) throw new Error('invalid site snapshot: duplicate site')
     siteIds.add(site.id)
+  }
+  if (value.deletedSites !== undefined) {
+    if (!Array.isArray(value.deletedSites)) throw new Error('invalid site snapshot: deletion receipts')
+    const deletedIds = new Set<string>()
+    for (const item of value.deletedSites) {
+      if (!object(item) || !text(item.siteId) || !text(item.tenantId)) throw new Error('invalid site snapshot: deletion receipt')
+      if (siteIds.has(item.siteId) || deletedIds.has(item.siteId)) throw new Error('invalid site snapshot: active or duplicate deleted site')
+      deletedIds.add(item.siteId)
+    }
   }
   const revisions = new Map<string, Record<string, unknown>>()
   for (const revision of value.revisions) {
@@ -88,6 +110,8 @@ export function parseSiteSnapshot(value: unknown): SiteSnapshot {
       || !['queued', 'running', 'succeeded', 'failed', 'cancelled'].includes(String(job.status))
       || (job.error !== undefined && typeof job.error !== 'string')) throw new Error('invalid site snapshot: publication job')
     if (jobIds.has(job.id)) throw new Error('invalid site snapshot: duplicate job')
+    if (job.target !== undefined) sitePublishTargetSchema.parse(job.target)
+    if (job.attempts !== undefined) sitePublishAttemptSchema.array().parse(job.attempts)
     jobIds.add(job.id)
   }
   // All record fields are checked above; the remaining pass checks typed relationships.

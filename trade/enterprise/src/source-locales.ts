@@ -1,5 +1,12 @@
 /** Folder onboarding and product-library copy uses the enterprise locale. */
 export const sourceZh = {
+  ocrStart: '识别图片 / 扫描件', ocrWorking: '正在识别文字…', ocrReview: '核对识别文字', ocrConfirm: '文字与原件一致，确认核对', ocrReviewed: 'OCR 文字已人工核对', ocrPending: 'OCR 文字待人工核对',
+  ocrHint: '文字在本机识别，原文件保留。首次使用可能需要下载语言包。请对照原件核对；如有识别错误，请补充文字版或在建档对话中说明，不要确认错误内容。',
+  ocrPage: '第 {page} 页', ocrUnavailable: '此部署尚未启用图片和扫描件识别。', ocrFailed: '文字识别失败，原文件已保留。请重试或补充清晰的图片、PDF 或文字版。',
+  ocrTimeout: '文字识别超时，原文件已保留。请拆分文件后重试。', ocrLimit: '文件超过识别页数、像素或文字限制，请拆分或缩小图片后重试。', ocrEmpty: '未识别到文字。请补充清晰的扫描件或文字版。', ocrReviewRequired: '请先在资料清单中核对 OCR 文字，或明确排除这份资料。',
+  sourceUploadSummary: '资料共 {total} 份：已保存 {uploaded}，等待上传 {pending}，上传失败 {failed}，已跳过 {skipped}。',
+  sourceReadSummary: '可解析文档已读取 {read} / {total} 段；需要你补充的资料 {needsInput} 份。',
+  sourceRetryHint: '资料尚未全部上传。有已选文件时可再次点击“导入所选资料”；刷新后请重新选择原文件夹以续传。已保存的文件不会重复上传。',
   geoProductReviewQuestion: '请确认产品资料草稿是否准确。',
   productSearch: '搜索产品名称、介绍或 SKU', productIdentity: '产品身份', productManufacturer: '制造商', productBrand: '品牌', productCategory: '品类', productAliases: '别名', productGroup: '产品系列', productLocale: '内容语言',
   productApplications: '应用场景', productCustomers: '适用客户', productDifferentiators: '特点', productLimitations: '限制条件', productClaims: '产品声明', productOffers: '报价', productEvidence: '证据', productVariants: '变体', productSolutions: '解决方案', productMedia: '媒体链接',
@@ -26,6 +33,13 @@ export const sourceZh = {
 
 /** English keys match the Chinese folder and product actions. */
 export const sourceEn: Record<keyof typeof sourceZh, string> = {
+  ocrStart: 'Recognize image / scan', ocrWorking: 'Recognizing text…', ocrReview: 'Review recognized text', ocrConfirm: 'Text matches the original; confirm review', ocrReviewed: 'OCR text reviewed by a person', ocrPending: 'OCR text awaits human review',
+  ocrHint: 'Recognition runs locally and preserves the original. First use may download language data. Compare the text with the original. If recognition is incorrect, supply a text version or explain the correction in the onboarding conversation; do not confirm incorrect text.',
+  ocrPage: 'Page {page}', ocrUnavailable: 'Image and scan recognition is not enabled for this deployment.', ocrFailed: 'Recognition failed; the original is preserved. Retry or supply a clearer image, PDF or text version.',
+  ocrTimeout: 'Recognition timed out; the original is preserved. Split the file and retry.', ocrLimit: 'The file exceeds the page, pixel or text limit. Split the file or reduce the image size.', ocrEmpty: 'No text was recognized. Supply a clearer scan or a text version.', ocrReviewRequired: 'Review the OCR text in the source inventory first, or explicitly exclude this source.',
+  sourceUploadSummary: '{total} sources: {uploaded} saved, {pending} waiting to upload, {failed} uploads failed, {skipped} skipped.',
+  sourceReadSummary: 'Readable documents: {read} / {total} passages read; {needsInput} sources need your input.',
+  sourceRetryHint: 'Some sources still need uploading. Retry Import selected files while files remain selected; after reloading, select the original folder to resume. Saved files are not uploaded again.',
   geoProductReviewQuestion: 'Please confirm that the product draft is accurate.',
   productSearch: 'Search product name, description or SKU', productIdentity: 'Product identity', productManufacturer: 'Manufacturer', productBrand: 'Brand', productCategory: 'Category', productAliases: 'Aliases', productGroup: 'Product group', productLocale: 'Content language',
   productApplications: 'Applications', productCustomers: 'Target customers', productDifferentiators: 'Differentiators', productLimitations: 'Limitations', productClaims: 'Product claims', productOffers: 'Offers', productEvidence: 'Evidence', productVariants: 'Variants', productSolutions: 'Solutions', productMedia: 'Media links',

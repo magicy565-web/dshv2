@@ -41,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 type Model = ReturnType<typeof createModel>
-type Actions = Pick<Model, 'load' | 'save' | 'upload' | 'rename' | 'remove' | 'task' | 'goal' | 'opportunity' | 'importSources' | 'product'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean> }
+type Actions = Pick<Model, 'load' | 'save' | 'upload' | 'rename' | 'remove' | 'task' | 'goal' | 'opportunity' | 'importSources' | 'recognize' | 'product'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean> }
 type Props = PropsRuntime<'main'> & PropsLocale<'enterprise'> & Actions & PropsHooks<{ enterprise: Model['source']; sessions: ISessions['list'] }>
 type T = PropsLocale<'enterprise'>['t']
 const fields = ['name', 'description', 'business', 'website', 'contact', 'email', 'phone', 'address'] as const
@@ -82,7 +82,7 @@ function ProfileForm({ initial, t, busy, onSave, onCancel }: { initial: Profile;
   </form>
 }
 
-function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remove, task, goal, opportunity, importSources, product, generate }: Props) {
+function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remove, task, goal, opportunity, importSources, recognize, product, generate }: Props) {
   const state = useEnterprise(value => value)
   const sessions = useSessions(value => value)
   const [tab, setTab] = useState<'profile' | 'products' | 'assets' | 'ai' | 'goals' | 'tasks' | 'opportunities' | 'overview' | 'supplier'>('overview')
@@ -115,7 +115,7 @@ function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remo
   useEffect(() => { void load() }, [load])
   const data = state.data
   const profile = data?.profile
-  const sourcePanel = <SourcePanel state={state} t={t} importSources={importSources} start={() => generate(`/product-geo ${t('sourcePrompt')}`, true)} />
+  const sourcePanel = <SourcePanel state={state} t={t} importSources={importSources} recognize={recognize} start={() => generate(`/product-geo ${t('sourcePrompt')}`, true)} />
   const assistant = <>{sourcePanel}<OnboardingPanel t={t} state={state} conversationStarted={Boolean(data?.onboarding.sessionId && sessions.byId[data.onboarding.sessionId]?.blank === false)} open={() => generate(`/product-geo ${t('onboardingPrompt')}`, true)} /></>
   const assets = data?.files ?? []
   const logo = assets.find(file => file.id === profile?.logoId)
@@ -278,11 +278,12 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'computers', order: 12, label: () => computerT('title') }, ComputersMark))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'computers', locale: 'computers' }, ComputersPanel))
   const siteT = ctx.locale.bind('sites')
+  const registerPanelGuard: typeof ctx.layout.registerPanelGuard = allow => ctx.effect(() => ctx.layout.registerPanelGuard(allow), 'enterprise: Sites unsaved changes')
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'sites', order: 11, label: () => siteT('title') }, SitesMark))
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'sites', locale: 'sites', inject: () => ({ generate }) }, SitesPanel))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'sites', locale: 'sites', inject: () => ({ generate, registerPanelGuard }) }, SitesPanel))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'enterprise', order: 10, label: () => t('title') }, EnterpriseMark))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'enterprise', locale: 'enterprise', inject: () => ({
-    load: model.load, save: model.save, upload: model.upload, rename: model.rename, remove: model.remove, task: model.task, goal: model.goal, opportunity: model.opportunity, importSources: model.importSources, product: model.product, generate, hooks: { enterprise: model.source, sessions: ctx.sessions.list },
+    load: model.load, save: model.save, upload: model.upload, rename: model.rename, remove: model.remove, task: model.task, goal: model.goal, opportunity: model.opportunity, importSources: model.importSources, recognize: model.recognize, product: model.product, generate, hooks: { enterprise: model.source, sessions: ctx.sessions.list },
   }) }, Panel))
   ctx.effect(() => {
     let disposed = false

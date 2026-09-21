@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-21-site-open-source-growth.md
-2026-09-21-site-open-source-growth.md: ad2f6b9da7408c95e54c2a4054831fc5fe0718c0
-2026-09-21-site-open-source-growth.zh.md: 593923de18d4e20555249e3b8570b84875a24d2a
+2026-09-21-site-open-source-growth.md: 859f27acc549015b4144fb4e55e67c197ea3d8ad
+2026-09-21-site-open-source-growth.zh.md: afc668ad2cbec3f54615fc42467d26255c30d02b

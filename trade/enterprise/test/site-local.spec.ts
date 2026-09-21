@@ -8,6 +8,7 @@ import { InMemorySiteService } from '../../../packages/site/site/src/memory.ts'
 import { TenantId } from '../../../packages/shopify/shopify/src/types.ts'
 import { SiteLocal, siteLocalConfig } from '../src/site-local.ts'
 import { siteEditor } from '../src/site-editor.ts'
+import { installSiteSystem } from './site-system-fixture.ts'
 import { companySiteReview } from '../src/site-company-source.ts'
 import { profileSchema } from '../src/schema.ts'
 
@@ -94,6 +95,7 @@ describe('self-hosted Sites', () => {
     const profile = profileSchema.parse({ name: 'Live company', kind: 'enterprise', description: 'Actual profile details', business: 'Parts', website: '', email: 'sales@example.test', contact: '', phone: '', address: '', logoId: null })
     let current = profile
     const review = () => companySiteReview(current, [], 'local', new Date())
+    installSiteSystem(ctx)
     let editor = siteEditor(ctx, directory, undefined, async () => {}, 1048576, undefined, review)
     const call = (query: string, data?: unknown) => editor.fetch(request(`/api/enterprise/sites?${query}`, data), '/sites')
     try {
@@ -109,12 +111,20 @@ describe('self-hosted Sites', () => {
       expect((await call(`action=local-publish&siteId=${site.id}`, command)).status).toBe(200)
       const received = await editor.publicFetch(request(`/sites-live/${site.id}/_inquiries`, body))
       expect(received.status).toBe(201)
-      editor.close(); await ctx.fiber.dispose(); ctx = new Context()
+      await editor.close(); await ctx.fiber.dispose(); ctx = new Context()
+      installSiteSystem(ctx)
       editor = siteEditor(ctx, directory, undefined, async () => {}, 1048576, undefined, review)
       expect((await editor.publicFetch(request(`/sites-live/${site.id}/`))).status).toBe(200)
       expect(await (await call(`action=inbox&siteId=${site.id}`)).json()).toMatchObject({ total: 1 })
       expect((await call(`action=local-publish&siteId=${site.id}`, command)).status).toBe(409)
       expect((await editor.publicFetch(request(`/sites-live/${site.id}/site.template.json`))).status).toBe(404)
-    } finally { editor.close(); await ctx.fiber.dispose(); await rm(directory, { recursive: true, force: true }) }
+      expect((await call(`action=manage&siteId=${site.id}`, { archived: true, expectedVersion: 0, confirmed: true })).status).toBe(409)
+      const online = await (await call(`action=local&siteId=${site.id}`)).json() as { generation: number }
+      expect((await call(`action=local-offline&siteId=${site.id}`, { expectedGeneration: online.generation, confirmed: true })).status).toBe(200)
+      expect((await call(`action=manage&siteId=${site.id}`, { archived: true, expectedVersion: 0, confirmed: true })).status).toBe(200)
+      expect((await call(`action=delete&siteId=${site.id}`, { expectedVersion: 1, confirmed: true })).status).toBe(200)
+      expect((await editor.publicFetch(request(`/sites-live/${site.id}/`))).status).toBe(404)
+      expect((await call(`siteId=${site.id}`)).status).toBe(404)
+    } finally { await editor.close(); await ctx.fiber.dispose(); await rm(directory, { recursive: true, force: true }) }
   })
 })

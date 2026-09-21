@@ -1,6 +1,7 @@
 /** Validated enterprise records shared by the HTTP producer and browser consumer. */
 import { z } from 'zod'
 import { sourceImport, sourcePath } from './source-schema.ts'
+import { ocrReceipt, ocrError } from './ocr-schema.ts'
 import { taskSchema } from './tasks-schema.ts'
 import { businessGoalSchema } from './business-goals-schema.ts'
 import { approvalSchema } from './governance.ts'
@@ -50,12 +51,15 @@ export const fileSchema = z.object({
   category: z.enum(['image', 'video', 'document']),
   knowledgeStatus: z.enum(['ready', 'unsupported', 'empty', 'failed']),
   textTruncated: z.boolean().optional(),
+  ocr: ocrReceipt.optional(),
+  ocrError: ocrError.optional(),
   source: z.object({ importId: sourceImport.shape.id, path: sourcePath }).optional(),
 })
 /** Uploaded asset metadata. */
 export type Asset = z.infer<typeof fileSchema>
 /** One fresh server view is returned after every successful mutation. */
 export const snapshotSchema = z.object({
+  ocrEnabled: z.boolean().optional(),
   profile: profileSchema.nullable(),
   submittedAt: z.iso.datetime().nullable(),
   files: z.array(fileSchema),

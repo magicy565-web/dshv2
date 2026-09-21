@@ -1,5 +1,6 @@
 /** Human-owned business objectives reuse the enterprise task editor and persisted records. */
 import { useState } from 'react'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { businessGoalFields, businessGoalId } from './business-goals-schema.ts'
@@ -30,7 +31,7 @@ export function BusinessGoalPanel({ goals, tasks, busy, t, command, taskCommand,
   const current = visible.find(goal => goal.id === selected)
   const open = (goal: BusinessGoal | null): void => {
     setFailed(false)
-    setEditor({ id: goal?.id ?? businessGoalId.parse(crypto.randomUUID()), original: goal, draft: goal ? { title: goal.title, successCriteria: goal.successCriteria, owner: goal.owner, dueDate: goal.dueDate, status: goal.status, outcome: goal.outcome } : { ...empty } })
+    setEditor({ id: goal?.id ?? businessGoalId.parse(randomUUID()), original: goal, draft: goal ? { title: goal.title, successCriteria: goal.successCriteria, owner: goal.owner, dueDate: goal.dueDate, status: goal.status, outcome: goal.outcome } : { ...empty } })
   }
   const submit = async (): Promise<void> => {
     if (!editor) return

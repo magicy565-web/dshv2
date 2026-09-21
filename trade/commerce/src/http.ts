@@ -19,7 +19,23 @@ const response = (body: unknown, status = 200) => Response.json(body, { status, 
 const target = z.object({ id, expectedRevision: z.number().int().positive() }).strict()
 const equals = (a: string, b: string) => Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b))
 
-async function readBody(request: Request, limit: number): Promise<unknown> {
+/** Resolve a bearer credential without accepting caller-selected roles.
+ * @param credentials - Server-owned credential bindings.
+ * @param authorization - Incoming Authorization header.
+ * @returns Matching principal or undefined.
+ */
+export function authenticate(credentials: z.infer<typeof credentialsSchema>, authorization: string | null): Principal | undefined {
+  if (!authorization?.startsWith('Bearer ')) return undefined
+  const credential = credentials.find(c => equals(authorization.slice(7), c.token))
+  return credential ? { role: credential.role, subjectId: credential.subjectId } : undefined
+}
+
+/** Buffer bounded JSON for business and MCP requests.
+ * @param request - Incoming request whose body is consumed once.
+ * @param limit - Maximum body bytes.
+ * @returns Parsed, untrusted JSON; invalid or oversized bodies throw.
+ */
+export async function readBody(request: Request, limit: number): Promise<unknown> {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new BusinessError('json_required', 415)
   const reader = request.body?.getReader(); if (!reader) throw new BusinessError('body_required', 400)
   let length = 0; const parts: Uint8Array[] = []
@@ -57,7 +73,7 @@ export function handler(dependencies: HttpDependencies) {
         return response(dependencies.enterprise.open(body))
       }
       if (!credentials.length && !dependencies.enterprise) throw new BusinessError('credentials_not_configured', 503)
-      const credential = embeddedActor ?? credentials.find(c => equals(token, c.token)) ?? dependencies.enterprise?.authenticate(token)
+      const credential = embeddedActor ?? authenticate(credentials, request.headers.get('authorization')) ?? dependencies.enterprise?.authenticate(token)
       if (!credential) throw new BusinessError('unauthorized', 401)
       const actor: Principal = { role: credential.role, subjectId: credential.subjectId }
       if (request.method === 'GET') {

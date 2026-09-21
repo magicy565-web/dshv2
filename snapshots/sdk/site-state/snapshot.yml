@@ -1,0 +1,10 @@
+version: 1
+scenario: site-state
+profile: sdk
+composition: sdk-site-state
+recording: authored
+environment:
+  DSH_SNAPSHOT_FEEDBACK: '1'
+header:
+  class: sdk-site-state
+  pin: true

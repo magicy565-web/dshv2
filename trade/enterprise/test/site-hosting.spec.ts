@@ -11,6 +11,7 @@ import { SiteHostingStore } from '../src/site-hosting-store.ts'
 import type { HostingBuildId, HostingProjectId, SiteDeploymentId } from '../src/site-hosting-schema.ts'
 import { HostingRejected, type SiteHostingProvider } from '../src/site-hosting-provider.ts'
 import { siteEditor } from '../src/site-editor.ts'
+import { installSiteSystem } from './site-system-fixture.ts'
 import { hostingStateSchema } from '../src/site-hosting-schema.ts'
 import { siteDomainName, type SiteDomain } from '../src/site-domains-schema.ts'
 import { siteTools } from '../src/site-tools.ts'
@@ -361,6 +362,7 @@ describe('independent Sites publication', () => {
     cleanups.push(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
     const context = new Context()
     cleanups.push(() => context.fiber.dispose())
+    installSiteSystem(context)
     const editor = siteEditor(context, dir, undefined, async () => {}, 10000)
     cleanups.push(() => editor.close())
     const request = (query: string, value?: unknown) => editor.fetch(new Request(`https://workspace.test/api/enterprise/sites?${query}`, { method: value === undefined ? 'GET' : 'POST', ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) }), '/sites')

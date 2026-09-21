@@ -29,6 +29,7 @@ Company, Product, ProductPassport, Evidence, ProductOpportunity, Merchant, Merch
 | GET `/api/manifest` | Version, command schema, READ / DRAFT / EXECUTE categories |
 | GET `/api/products/readiness?id=…` | Missing fields for the owning factory |
 | POST `/api/commands` | Schema, authorization, revisions, idempotency and atomic audit |
+| POST `/mcp` | Authenticated supplier intake over Streamable HTTP; [connection and tool workflow](README.md#mcp-onboarding) |
 | POST `/api/integration/open`, `/api/integration/resume`, `/api/integration/exchange` | Server-authenticated source refresh or saved-record access; exchange a single-use code for a scoped browser session |
 | POST `/api/integration/dispatch` | Deployment-authenticated closed route forwarding for native enterprise controls; bound human roles, no arbitrary subject or URL |
 | POST `/api/agent/check` | Send minimal inference; initialization or an empty response never counts as success |
@@ -65,6 +66,7 @@ Independent SQLite upgrades user_version transactionally, refuses unsupported hi
 4. PerformanceSnapshot and Approval.
 5. Source import receipts and expiring hashed handoff/session credentials.
 6. Session roles, current merchant store selections and pinned launch destinations; no Shopify tokens.
+7. Immutable intake text sources and exact-version supplier submission receipts.
 
 ## E2E and gaps
 

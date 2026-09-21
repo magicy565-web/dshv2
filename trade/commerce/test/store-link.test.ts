@@ -58,17 +58,19 @@ test('merchant continuation carries only its provisioned role and cannot disclos
   assert.equal(factoryOnly.authenticate(session.token), null)
 })
 
-test('version six preserves existing business records and marks old browser sessions as factory sessions', t => {
+test('upgrades preserve existing business records, assign session roles and add empty intake storage', t => {
   const dir = mkdtempSync(join(tmpdir(), 'commerce-store-migration-')), path = join(dir, 'store.sqlite')
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const original = fixture(path); original.company(); const company = original.db.require('company', original.factory.subjectId)
-  original.db.db.exec("DROP TABLE commerce_store_bindings; DROP TABLE launch_store_bindings; ALTER TABLE linked_sessions DROP COLUMN role; INSERT INTO linked_sessions VALUES('fixture-hash','session','fixture-binding','2099-01-01T00:00:00.000Z'); PRAGMA user_version=5")
+  original.db.db.exec("DROP TABLE onboarding; DROP TABLE intakeSource; DROP TABLE commerce_store_bindings; DROP TABLE launch_store_bindings; ALTER TABLE linked_sessions DROP COLUMN role; INSERT INTO linked_sessions VALUES('fixture-hash','session','fixture-binding','2099-01-01T00:00:00.000Z'); PRAGMA user_version=5")
   original.db.close()
   const migrated = new CommerceDatabase(path)
   try {
     assert.deepEqual(migrated.require('company', company.id), company)
     assert.equal(migrated.db.prepare('SELECT role FROM linked_sessions').get()!.role, 'factory')
-    assert.equal(migrated.db.prepare('PRAGMA user_version').get()!.user_version, 6)
+    assert.equal(migrated.db.prepare('PRAGMA user_version').get()!.user_version, 7)
+    assert.deepEqual(migrated.list('onboarding'), [])
+    assert.deepEqual(migrated.list('intakeSource'), [])
   } finally { migrated.close() }
 })
 

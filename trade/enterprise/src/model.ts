@@ -29,6 +29,8 @@ export function createModel() {
   let disposed = false
   const listeners = new Set<() => void>()
   const abort = new AbortController()
+  // A lost response can follow a committed import; retries must reuse its identity.
+  const importIds = new WeakMap<File[], string>()
   let xhr: XMLHttpRequest | undefined
   const publish = (patch: Partial<State>): void => {
     if (disposed) return
@@ -85,8 +87,14 @@ export function createModel() {
     goal: (command: BusinessGoalCommand) => run(() => request('/goals', command)),
     opportunity: (command: OpportunityCommand) => run(() => request('/opportunities', command)),
     product: (action: 'draft' | 'confirm' | 'archive', body: unknown) => run(() => request(`/products/${action}`, body)),
+    recognize: (id: Asset['id'], receiptId?: NonNullable<Asset['ocr']>['id']) => run(async () => {
+      try { return await request('/sources/recognize', { id, ...(receiptId ? { receiptId } : {}) }) }
+      catch (error) { publish({ data: await request('') }); throw error }
+    }),
     importSources: (files: File[], resumeId?: string) => run(async () => {
-      const input = sourceManifest.parse({ id: resumeId ?? crypto.randomUUID(), files: files.map(file => ({ path: file.webkitRelativePath || file.name, size: file.size })) })
+      const id = resumeId ?? importIds.get(files) ?? crypto.randomUUID()
+      const input = sourceManifest.parse({ id, files: files.map(file => ({ path: file.webkitRelativePath || file.name, size: file.size })) })
+      importIds.set(files, id)
       let data = resumeId ? await request('') : await request('/sources/import', input)
       const batch = data.imports?.find(batch => batch.id === input.id)
       if (!batch) throw new Error('missing')
@@ -94,15 +102,17 @@ export function createModel() {
       const remaining = batch.files.filter(file => file.status === 'pending' || file.status === 'failed')
       if (remaining.some(entry => !selected.has(entry.path) || selected.get(entry.path)!.size !== entry.size)) throw new Error('sourceChanged')
       publish({ data })
-      let failed = false
+      let failure: unknown
       for (const entry of remaining) {
         if (disposed) throw new Error('uploadFailed')
         try { data = await uploadOne(selected.get(entry.path)!, `/sources/upload?${new URLSearchParams({ importId: input.id, path: entry.path })}`); publish({ data }) }
-        catch { failed = true }
+        catch (error) { failure ??= error }
       }
       data = await request('')
       publish({ data })
-      if (failed) throw new Error('uploadFailed')
+      const unresolved = data.imports?.find(batch => batch.id === input.id)?.files.some(file => file.status === 'pending' || file.status === 'failed')
+      if (unresolved) throw failure ?? new Error('uploadFailed')
+      importIds.delete(files)
       return data
     }),
     upload: (files: File[]) => run(async () => {

@@ -47,7 +47,7 @@ const evidence = z.object({
   field: short, value: fact.shape.value, sourceType: z.enum(['WEBSITE', 'DOCUMENT', 'USER', 'AGENT']),
   sourceUrl: url.nullable(), sourceFile: short.nullable(), sourceUser: short.nullable(), sourceAgent: short.nullable(),
   excerpt: text, verificationStatus: fact.shape.status, confidence: z.number().min(0).max(1).nullable(),
-  capturedAt: z.iso.datetime(), validUntil: z.iso.datetime().nullable(), revoked: z.boolean(),
+  capturedAt: z.iso.datetime(), validUntil: z.iso.datetime().nullable(), revoked: z.boolean(), intakeSourceId: id.optional(),
 }).strict()
 const opportunity = z.object({
   ...base, companyId: id, productId: id, passportRevision: z.number().int().positive(), companyRevision: z.number().int().positive(),
@@ -96,8 +96,34 @@ const performance = z.object({
 const approval = z.object({ ...base, merchantId: id, launchId: id, launchRevision: z.number().int().positive(), listingRevision: z.number().int().positive(), status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXECUTING', 'EXECUTED', 'UNCERTAIN']), action: z.literal('SHOPIFY_PUBLISH') }).strict()
 const activity = z.object({ ...base, ownerId: id, actor: short, action: short, targetId: id, detail: z.string().max(4000) }).strict()
 
+/** Immutable text supplied by an external client; references are labels, never fetch targets. */
+export const intakeSourceInput = z.object({
+  kind: z.enum(['DOCUMENT', 'WEBSITE', 'USER']), name: short, reference: short.nullable(), text: z.string().trim().min(1),
+}).strict().refine(v => v.kind !== 'WEBSITE' || url.safeParse(v.reference).success, 'Website sources require an HTTP(S) URL')
+const intakeSource = z.object({ ...base, companyId: id, source: intakeSourceInput }).strict()
+const submittedProduct = z.object({ id, revision: z.number().int().positive() }).strict()
+const onboarding = z.object({
+  ...base,
+  submission: z.object({ companyRevision: z.number().int().positive(), products: z.array(submittedProduct), submittedAt: z.iso.datetime() }).strict().nullable(),
+}).strict()
+/** Draft values cannot assert verification or choose disclosure permissions. */
+export const intakeFact = z.object({
+  value: fact.shape.value,
+  sources: z.array(z.object({ id, excerpt: text }).strict()).max(30),
+}).strict().refine(v => v.value !== null || v.sources.length === 0, 'Unknown facts cannot bind evidence')
+/** Commands shared by MCP and the authenticated business service. */
+export const intakeCommands = {
+  start: z.object({ type: z.literal('onboarding.start'), requestId: id }).strict(),
+  source: z.object({ type: z.literal('onboarding.source'), requestId: id, id, source: intakeSourceInput }).strict(),
+  company: z.object({ type: z.literal('onboarding.company'), requestId: id, expectedRevision: z.number().int().nonnegative(), facts: z.partialRecord(z.enum(companyFields), intakeFact) }).strict(),
+  products: z.object({ type: z.literal('onboarding.products'), requestId: id, products: z.array(z.object({ id, expectedRevision: z.number().int().nonnegative(), facts: z.partialRecord(z.enum(productFields), intakeFact) }).strict()).min(1) }).strict(),
+  submit: z.object({ type: z.literal('onboarding.submit'), requestId: id, expectedRevision: z.number().int().positive(), companyRevision: z.number().int().positive(), products: z.array(submittedProduct) }).strict(),
+}
+/** Parsed onboarding command, executed inside the business receipt transaction. */
+export type IntakeCommand = z.infer<(typeof intakeCommands)[keyof typeof intakeCommands]>
+
 /** One table per business entity; Session data never enters these schemas. */
-export const schemas = { company, product, passport, evidence, opportunity, merchant, merchantProfile, match, sample, listing, artifact, launch, performance, activity, approval } as const
+export const schemas = { company, product, passport, evidence, opportunity, merchant, merchantProfile, match, sample, listing, artifact, launch, performance, activity, approval, onboarding, intakeSource } as const
 /** Table names accepted by storage. */
 export type Kind = keyof typeof schemas
 /** Durable types indexed by business entity. */
@@ -108,10 +134,11 @@ const envelope = { requestId: id }
 const version = { id, expectedRevision: z.number().int().nonnegative() }
 /** Stable command contract shared by Web and onboarding plugins. */
 export const commandSchema = z.discriminatedUnion('type', [
+  intakeCommands.start, intakeCommands.source, intakeCommands.company, intakeCommands.products, intakeCommands.submit,
   z.object({ ...envelope, type: z.literal('company.save'), ...version, facts: companyFacts }).strict(),
   z.object({ ...envelope, type: z.literal('product.save'), ...version, facts: passportFacts }).strict(),
   z.object({ ...envelope, type: z.literal('merchant.save'), ...version, name: short, facts: merchantFacts }).strict(),
-  z.object({ ...envelope, type: z.literal('evidence.add'), entityType: evidence.shape.entityType, entityId: id, field: short, value: fact.shape.value, sourceType: evidence.shape.sourceType, sourceUrl: url.nullable(), sourceFile: short.nullable(), excerpt: text, validUntil: z.iso.datetime().nullable() }).strict(),
+  z.object({ ...envelope, type: z.literal('evidence.add'), entityType: evidence.shape.entityType, entityId: id, field: short, value: fact.shape.value, sourceType: evidence.shape.sourceType, sourceUrl: url.nullable(), sourceFile: short.nullable(), excerpt: text, validUntil: z.iso.datetime().nullable(), intakeSourceId: id.optional() }).strict(),
   z.object({ ...envelope, type: z.literal('evidence.revoke'), ...version }).strict(),
   z.object({ ...envelope, type: z.literal('facts.confirm'), entityType: evidence.shape.entityType, ...version, fields: z.array(short).min(1).max(60), visibility: fact.shape.visibility }).strict(),
   z.object({ ...envelope, type: z.literal('product.pause'), ...version, paused: z.boolean() }).strict(),

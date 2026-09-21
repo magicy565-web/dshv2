@@ -6,7 +6,6 @@ import { SiteId, SiteRevisionId } from '../../../packages/site/site/src/types.ts
 import type { SiteProjectFile } from '../../../packages/site/site/src/types.ts'
 import { parseSiteChangeSet } from '../../../packages/site/site/src/snapshot.ts'
 import type { TenantId } from '../../../packages/shopify/shopify/src/types.ts'
-import { renderStaticPreview } from '../../../packages/site/site/src/preview.ts'
 import type { SiteHosting } from './site-hosting.ts'
 import { createTemplateSite } from './site-starter.ts'
 import { siteTemplateInput, siteTemplateSelection } from './site-template-input.ts'
@@ -103,7 +102,7 @@ export function siteTools(sites: SiteService, tenantId: TenantId, maxBytes: numb
         }
         const build = sites.build(resolved, revisionId)
         const previewUrl = `/api/enterprise/sites?${new URLSearchParams({ siteId: input.siteId, action: 'preview', revisionId: input.revisionId })}`
-        await renderStaticPreview(build, '/', path => `${previewUrl}&path=${encodeURIComponent(path)}`, maxBytes)
+        await sites.renderArtifact(build, '/', path => `${previewUrl}&path=${encodeURIComponent(path)}`, maxBytes)
         signal.throwIfAborted()
         return { revisionId: build.revisionId, digest: build.digest, previewUrl, files: build.files.map(item => ({ path: item.path, contentType: item.contentType, sha256: item.sha256 })) }
       }),

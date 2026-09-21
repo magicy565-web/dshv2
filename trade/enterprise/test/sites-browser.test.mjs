@@ -13,6 +13,7 @@ import { siteStyles } from './site-style-fixtures.mjs'
 import { verifyManufacturing } from './manufacturing-browser.mjs'
 import { verifySiteCreation } from './site-motion-browser.mjs'
 import { verifyCompanySite } from './company-site-browser.mjs'
+import { verifySiteManagement } from './site-management-browser.mjs'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 
@@ -110,7 +111,11 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.screenshot({ path: join(evidence, 'sites-preview-desktop.png') })
   await page.getByRole('button', { name: '源码', exact: true }).click()
   await page.getByRole('textbox', { name: '源码', exact: true }).fill(html.replace('A quieter home.', 'A brighter home.'))
+  await page.getByRole('button', { name: '企业空间', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: '再离开 Sites' }).waitFor()
+  assert.match(await page.getByRole('textbox', { name: '源码', exact: true }).inputValue(), /A brighter home\./)
   await page.getByRole('button', { name: '保存新版本' }).click()
+  await page.getByRole('alert').filter({ hasText: '再离开 Sites' }).waitFor({ state: 'detached' })
   await page.getByRole('button', { name: '预览', exact: true }).click()
   await frame.getByRole('heading', { name: 'Thoughtful objects. A brighter home.' }).waitFor()
   await page.getByRole('button', { name: '源码', exact: true }).click()
@@ -182,6 +187,7 @@ test('Sites runs saved browser code in a private preview and restores source rev
     for (const device of ['desktop', 'mobile']) {
       await page.getByRole('button', { name: device === 'desktop' ? '桌面' : '手机', exact: true }).click()
       await frame.getByRole('heading', { name: style.heading, exact: true }).waitFor()
+      await frame.locator('body').evaluate(async () => { if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', () => resolve(), { once: true })) })
       await frame.locator('#action').click()
       assert.equal(await frame.locator('#result').textContent(), 'Your preview is interactive.')
       assert.equal(await frame.locator('body').evaluate(element => getComputedStyle(element).backgroundColor), style.background)
@@ -259,6 +265,8 @@ test('Sites runs saved browser code in a private preview and restores source rev
   await page.reload()
   await page.getByRole('button', { name: 'Sites', exact: true }).click()
   await page.getByRole('button', { name: /Northwind Studio/ }).click()
+  await page.getByRole('tab', { name: '发布', exact: true }).click()
+  await page.locator('summary').filter({ hasText: /^独立托管$/ }).click()
   await page.getByRole('button', { name: '检查并发布', exact: true }).click()
   const publish = page.getByRole('button', { name: '发布此版本', exact: true })
   assert.equal(await publish.isDisabled(), true)
@@ -315,5 +323,6 @@ test('Sites runs saved browser code in a private preview and restores source rev
   assert.equal(await failureCard.getByRole('button', { name: '检查并发布', exact: true }).isDisabled(), true)
   await failureCard.screenshot({ path: join(evidence, 'sites-build-diagnostics.png') })
   for (const { input, observedGeneration } of domainChanges) assert.deepEqual(input, { operation: input.operation, name: 'www.example.com', expectedGeneration: observedGeneration, confirmed: true })
+  await verifySiteManagement(page, context, endpoint)
   assert.deepEqual(errors, [])
 })

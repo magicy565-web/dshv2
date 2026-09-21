@@ -16,7 +16,7 @@ async function fixture() {
   const themeId = ShopifyThemeId('selected-theme')
   const provider = new PublicStoreProvider([], [], [{ id: themeId, name: 'Selected', role: 'unpublished' }])
   const shopify = new InMemoryShopifyStoreService(new Context(), provider)
-  const options = { themeId, publicOrigin: 'https://shop.example', maxAttempts: 3, retryDelayMs: 0 }
+  const options = { themeId, maxAttempts: 3, retryDelayMs: 0 }
   return { sites, spec, revision, job, provider, shopify, options }
 }
 
@@ -58,6 +58,8 @@ describe('site workflow', () => {
     expect(publish.mock.calls[0]![1].idempotencyKey).toBe(publish.mock.calls[1]![1].idempotencyKey)
     expect(publish.mock.calls[1]![1].themeId).toBe(f.options.themeId)
     expect(workflow.history(f.job.id).map(item => item.status)).toEqual(['failed', 'succeeded'])
+    expect(f.sites.getPublishJob(f.spec, f.job.id)?.attempts?.map(item => item.status)).toEqual(['failed', 'succeeded'])
+    expect(Object.keys(publish.mock.calls[1]![1].files).every(path => /^(layout|config|templates)\//.test(path))).toBe(true)
   })
 
   it('does not retry permission failures or unknown exceptions', async () => {

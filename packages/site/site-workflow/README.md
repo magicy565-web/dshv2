@@ -17,12 +17,12 @@ The workflow supplies its Shopify side effect to `SiteService.runPublishJob`, so
 
 Publication accepts only a queued job whose site and revision match the supplied operation; mismatches fail before any provider call.
 
-Options require an explicit `themeId` and HTTP(S) `publicOrigin`. The workflow verifies the revision against stored state, resolves the tenant-owned connection, and refuses a missing selected theme. Only `ShopifyApiError` values classified as transient or rate-limit are retried. Permission errors and unknown failures stop immediately. Audit callback failures propagate without repeating a successful provider publication. Attempt history is process-local and returned as detached records.
+Options require an explicit `themeId`. The workflow verifies the revision against stored state, resolves the tenant-owned connection, and refuses a missing or already-live selected theme. Only `ShopifyApiError` values classified as transient or rate-limit are retried. Permission errors and unknown failures stop immediately. Audit callback failures propagate without repeating a successful provider publication. Attempt status persists with the Site job. Rich audit callback records remain process-local and are returned detached.
 
 ## Known Limitations and Deferred Work
 
-- The current renderer produces static HTML, robots, sitemap and a JSON revision artifact. These files are not a Shopify theme; a production adapter must translate approved content into Shopify theme templates before live publication.
-- Durable attempt storage, distributed locks and automatic rollback remain deployment responsibilities.
+- The controlled renderer produces Shopify theme templates and rejects arbitrary source projects. Live publication requires an authorized provider and approved content.
+- The enterprise worker owns durable destination review and automatic queue draining. Distributed locks and automatic rollback remain deployment responsibilities.
 
 ## Model Experience
 

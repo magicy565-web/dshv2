@@ -3,10 +3,14 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { z } from 'zod'
 import { Button, Input, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SiteLocaleKey } from './site-locales.ts'
 import { SiteCompanyPanel } from './client-site-company.tsx'
 import { SiteOperationsPanel } from './client-site-operations.tsx'
 import { SiteLocalPanel } from './client-site-local.tsx'
+import { SiteShopifyPanel } from './client-site-shopify.tsx'
+import { SiteManagement } from './client-site-management.tsx'
+import { SiteDiffPanel, SiteActivityPanel } from './client-site-history.tsx'
 import { SiteExperience } from './site-motion.tsx'
 import { siteMotionStyle } from './site-motion-style.ts'
 import { SiteHostingPanel } from './client-site-hosting.tsx'
@@ -17,13 +21,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { sites: SiteLocaleKey }
 }
 
-const siteSchema = z.object({ id: z.string(), name: z.string(), currentRevisionId: z.string().optional(), liveRevisionId: z.string().optional(), availability: z.enum(['unknown', 'online', 'offline']).optional() })
+const siteSchema = z.object({ id: z.string(), name: z.string(), archived: z.boolean().optional(), managementVersion: z.number().optional(), currentRevisionId: z.string().optional(), liveRevisionId: z.string().optional(), availability: z.enum(['unknown', 'online', 'offline']).optional() })
 const versionSchema = z.object({ id: z.string(), createdAt: z.string(), source: z.enum(['user', 'agent', 'rollback']) })
 const projectSchema = z.object({ framework: z.enum(['static', 'nextjs']), files: z.array(z.object({ path: z.string(), content: z.string(), encoding: z.enum(['utf8', 'base64']) })) })
 type Site = z.infer<typeof siteSchema>
 type Version = z.infer<typeof versionSchema>
 type Project = SiteProject
-type Props = PropsLocale<'sites'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean> }
+type Props = PropsLocale<'sites'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean>; registerPanelGuard: ILayout['registerPanelGuard'] }
 const errorKeys = ['error', 'conflict', 'tooLarge', 'duplicateFile', 'invalidProject'] as const
 
 function SitePreview({ siteId, revisionId, title, mobile }: { siteId: string; revisionId: string; title: string; mobile: boolean }) {
@@ -53,10 +57,10 @@ async function request(query: Record<string, string>, signal: AbortSignal, body?
 }
 
 /** Display workspace sites, private previews, source editing and immutable version history.
- * @param props - Localized copy and the existing conversation entry action.
+ * @param props - Localized copy, conversation action and effect-owned panel guard registration.
  * @returns The Sites management panel.
  */
-export function SitesPanel({ t, generate }: Props) {
+export function SitesPanel({ t, generate, registerPanelGuard }: Props) {
   const [sites, setSites] = useState<Site[]>([])
   const [selected, setSelected] = useState<string>()
   const [revision, setRevision] = useState<string>()
@@ -72,10 +76,14 @@ export function SitesPanel({ t, generate }: Props) {
   const [filePath, setFilePath] = useState('index.html')
   const [newPath, setNewPath] = useState('')
   const [prompt, setPrompt] = useState('')
-  const [tab, setTab] = useState<'preview' | 'code'>('preview')
+  const [tab, setTab] = useState<'preview' | 'code' | 'diff' | 'activity'>('preview')
   const [section, setSection] = useState<'website' | 'publication' | 'inquiries' | 'statistics'>('website')
   const sectionId = useId()
+  const [showArchived, setShowArchived] = useState(false)
   const [mobile, setMobile] = useState(false)
+  const [contentPending, setContentPending] = useState(false)
+  const [trafficPending, setTrafficPending] = useState(false)
+  const [navigationBlocked, setNavigationBlocked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<(typeof errorKeys)[number]>()
@@ -108,12 +116,21 @@ export function SitesPanel({ t, generate }: Props) {
   const site = sites.find(item => item.id === selected)
   const selectedRevision = revision ?? site?.currentRevisionId
   const dirty = Boolean(project && project !== savedProject)
+  const pending = dirty || contentPending || trafficPending
   useEffect(() => {
-    if (!dirty) return
+    if (!pending) { setNavigationBlocked(false); return }
+    return registerPanelGuard(panelId => {
+      if (panelId === 'sites') return true
+      setNavigationBlocked(true)
+      return false
+    })
+  }, [pending, registerPanelGuard])
+  useEffect(() => {
+    if (!pending) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+  }, [pending])
   useEffect(() => {
     setProject(undefined)
     setVersions([])
@@ -135,12 +152,12 @@ export function SitesPanel({ t, generate }: Props) {
     }).catch(() => { if (!controller.signal.aborted) setError('error') })
     return () => controller.abort()
   }, [selected, selectedRevision, refresh])
-  const action = async (run: () => Promise<void>): Promise<void> => {
+  const action = async (run: () => Promise<void>): Promise<boolean> => {
     const signal = lifetime.current.signal
-    if (busy || signal.aborted) return
+    if (busy || signal.aborted) return false
     setBusy(true); setError(undefined)
-    try { await run() }
-    catch (cause) { if (!signal.aborted) setError(errorKeys.find(key => cause instanceof Error && cause.message === key) ?? 'error') }
+    try { await run(); return true }
+    catch (cause) { if (!signal.aborted) setError(errorKeys.find(key => cause instanceof Error && cause.message === key) ?? 'error'); return false }
     finally { if (!signal.aborted) setBusy(false) }
   }
   const start = () => action(async () => {
@@ -158,6 +175,12 @@ export function SitesPanel({ t, generate }: Props) {
     const result = siteSchema.parse(await request({ action: 'starter' }, lifetime.current.signal, { name: brandName.trim() || t('starterName'), template: { ...template, parameters: { style: templateStyle, ...(brandName.trim() ? { brandName: brandName.trim() } : {}) } } }))
     setSites(items => [...items, result]); setSelected(result.id); setRevision(result.currentRevisionId)
     setTab('preview'); setSection('website'); setPrompt(''); setRefresh(value => value + 1)
+  })
+  const manage = (operation: 'manage' | 'delete', body: unknown) => action(async () => {
+    if (!site) return
+    await request({ siteId: site.id, action: operation }, lifetime.current.signal, body)
+    if (operation === 'delete') { setSelected(undefined); setRevision(undefined) }
+    setRefresh(value => value + 1)
   })
   const restore = () => action(async () => {
     if (!site || !selectedRevision) return
@@ -177,34 +200,38 @@ export function SitesPanel({ t, generate }: Props) {
     anchor.href = url; anchor.download = `${site?.id ?? 'site'}.zip`; anchor.click()
     URL.revokeObjectURL(url)
   }
-  const promptForm = <form className="site-prompt" aria-busy={busy} data-ready={!busy && !dirty && Boolean(prompt.trim())} onSubmit={event => { event.preventDefault(); void start() }}><div className="site-prompt-heading"><label htmlFor="site-prompt">{t(site ? 'editPrompt' : 'prompt')}</label>{!site && <p>{t('promptDetail')}</p>}</div><textarea id="site-prompt" value={prompt} placeholder={t('placeholder')} onChange={event => setPrompt(event.target.value)} /><div className="site-prompt-footer"><Button type="submit" variant="primary" className="site-prompt-submit" aria-busy={busy} disabled={busy || dirty || !prompt.trim()}>{t(busy ? 'creating' : site ? 'edit' : 'create')}<span className="site-submit-arrow" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 10h12m-5-5 5 5-5 5" /></svg></span></Button></div></form>
+  const promptForm = <form className="site-prompt" aria-busy={busy} data-ready={!busy && !pending && Boolean(prompt.trim())} onSubmit={event => { event.preventDefault(); void start() }}><div className="site-prompt-heading"><label htmlFor="site-prompt">{t(site ? 'editPrompt' : 'prompt')}</label>{!site && <p>{t('promptDetail')}</p>}</div><textarea id="site-prompt" value={prompt} placeholder={t('placeholder')} onChange={event => setPrompt(event.target.value)} /><div className="site-prompt-footer"><Button type="submit" variant="primary" className="site-prompt-submit" aria-busy={busy} disabled={busy || pending || site?.archived || !prompt.trim()}>{t(busy ? 'creating' : site ? 'edit' : 'create')}<span className="site-submit-arrow" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M4 10h12m-5-5 5 5-5 5" /></svg></span></Button></div></form>
   return <section className="ent site-workspace"><div className="site-shell">
-    <header className="ent-header"><div><h1>{t('title')}</h1><p className="ent-muted">{t('subtitle')}</p></div><div className="ent-actions"><Button disabled={busy || dirty} onClick={() => setRefresh(value => value + 1)}>{t('refresh')}</Button><Button variant="primary" disabled={busy || dirty} icon={<IconPlusOutline16 />} onClick={() => { setSelected(undefined); setRevision(undefined); setPrompt('') }}>{t('newWebsite')}</Button></div></header>
+    <header className="ent-header"><div><h1>{t('title')}</h1><p className="ent-muted">{t('subtitle')}</p></div><div className="ent-actions"><Button disabled={busy || pending} onClick={() => setRefresh(value => value + 1)}>{t('refresh')}</Button><Button variant="primary" disabled={busy || pending} icon={<IconPlusOutline16 />} onClick={() => { setSelected(undefined); setRevision(undefined); setPrompt('') }}>{t('newWebsite')}</Button></div></header>
     {error && <p role="alert" className="ent-notice">{t(error)}</p>}
+    {pending && navigationBlocked && <p role="alert" className="ent-notice">{t('leaveBlocked')}</p>}
     <dl className="site-overview" aria-label={t('websiteList')}><div><dt>{t('websiteTotal')}</dt><dd>{loading || maxBodyBytes === undefined ? '—' : sites.length}</dd></div><div><dt>{t('websiteDrafts')}</dt><dd>{loading || maxBodyBytes === undefined ? '—' : sites.filter(item => !item.liveRevisionId).length}</dd></div><div><dt>{t('websiteOnline')}</dt><dd>{loading || maxBodyBytes === undefined ? '—' : sites.filter(item => item.availability === 'online').length}</dd></div></dl>
-    <div className="site-layout" data-empty={sites.length === 0}><aside className="site-list" aria-label={t('websiteList')}><div className="site-list-heading"><h2>{t('websiteList')}</h2><span>{sites.length}</span></div>{loading && <p role="status">{t('loading')}</p>}{sites.map(item => <button className="site-card" disabled={busy || dirty} key={item.id} aria-pressed={selected === item.id} onClick={() => { setSelected(item.id); setRevision(undefined); setPrompt(''); setError(undefined); setSection('website') }}><span className="site-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M7 6.5h1M10 6.5h1" /></svg></span><span className="site-card-content"><strong>{item.name}</strong><span className="site-status" data-status={item.availability ?? (item.liveRevisionId ? 'published' : 'draft')}>{t(item.availability ?? (item.liveRevisionId ? 'published' : 'draft'))}</span></span></button>)}</aside>
+    <div className="site-layout" data-empty={sites.length === 0}><aside className="site-list" aria-label={t('websiteList')}><div className="site-list-heading"><h2>{t('websiteList')}</h2><span>{sites.length}</span></div>{loading && <p role="status">{t('loading')}</p>}<label><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} />{t('showArchived')}</label>{sites.filter(item => showArchived || !item.archived || item.id === selected).map(item => <button className="site-card" disabled={busy || pending} key={item.id} aria-pressed={selected === item.id} onClick={() => { setSelected(item.id); setRevision(undefined); setPrompt(''); setError(undefined); setSection('website') }}><span className="site-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M7 6.5h1M10 6.5h1" /></svg></span><span className="site-card-content"><strong>{item.name}</strong><span className="site-status" data-status={item.availability ?? (item.liveRevisionId ? 'published' : 'draft')}>{t(item.archived ? 'archived' : item.availability ?? (item.liveRevisionId ? 'published' : 'draft'))}</span></span></button>)}</aside>
     <main className="site-main">{!site ? <div className="site-welcome"><SiteExperience t={t} /><div className="site-template-options"><label>{t('templateStyle')}<select disabled={busy} value={templateStyle} onChange={event => setTemplateStyle(event.target.value)}>{(['industrial', 'precision', 'international'] as const).map(style => <option key={style} value={style}>{t(style)}</option>)}</select></label></div><div className="site-creation-primary"><SiteCompanyPanel t={t} style={templateStyle} created={result => { setSites(items => [...items, result]); setSelected(result.id); setRevision(result.currentRevisionId); setTab('preview'); setSection('website'); setPrompt(''); setRefresh(value => value + 1) }} /></div><details className="site-secondary-options"><summary>{t('creationOptions')}</summary>{promptForm}<article className="site-starter"><h3>{t('starterTitle')}</h3><p>{t('starterDetail')}</p><div className="site-template-options"><label>{t('templateBrand')}<Input disabled={busy} maxLength={80} value={brandName} placeholder={t('templateBrandHint')} onChange={event => setBrandName(event.target.value)} /></label></div><Button disabled={busy || loading || !template} onClick={() => { void useStarter() }}>{t('useStarter')}</Button></article></details></div> : <>
       <div className="site-toolbar site-editor-heading"><div><h2>{site.name}</h2><span className="site-status" data-status={site.availability ?? (site.liveRevisionId ? 'published' : 'draft')}>{t(site.availability ?? (site.liveRevisionId ? 'published' : 'draft'))}</span></div></div>
+      <SiteManagement key={`${site.id}:${site.managementVersion ?? 0}`} site={site} t={t} disabled={busy || pending} change={manage} />
+      {site.archived && <p role="status">{t('archiveSiteHelp')}</p>}
       <div className="site-sections" role="tablist" aria-label={t('workspaceNavigation')}>
         {(['website', 'publication', 'inquiries', 'statistics'] as const).map((value, index, values) => <button key={value} id={sectionId + '-' + value} type="button" role="tab" aria-selected={section === value} aria-controls={sectionId + '-panel-' + value} tabIndex={section === value ? 0 : -1} onClick={() => setSection(value)} onKeyDown={event => { const next = event.key === 'ArrowRight' ? (index + 1) % values.length : event.key === 'ArrowLeft' ? (index + values.length - 1) % values.length : event.key === 'Home' ? 0 : event.key === 'End' ? values.length - 1 : undefined; if (next === undefined) return; event.preventDefault(); setSection(values[next]!); document.getElementById(sectionId + '-' + values[next])?.focus() }}>{t(value === 'website' ? 'workspaceWebsite' : value === 'publication' ? 'workspacePublication' : value === 'inquiries' ? 'workspaceInquiries' : 'workspaceStatistics')}</button>)}
       </div>
       <div role="tabpanel" id={sectionId + '-panel-website'} aria-labelledby={sectionId + '-website'} hidden={section !== 'website'}>
       {dirty && <div className="ent-notice"><p role="status">{t('unsaved')}</p><Button disabled={busy} onClick={() => { setProject(savedProject); setError(undefined) }}>{t('discard')}</Button></div>}
-      {selectedRevision ? <><div className="site-toolbar"><nav className="ent-tabs">{(['preview', 'code'] as const).map(value => <button className="ent-tab" aria-pressed={tab === value} key={value} onClick={() => setTab(value)}>{t(value)}</button>)}</nav><label>{t('history')} <select disabled={busy || dirty} aria-label={t('history')} value={selectedRevision} onChange={event => setRevision(event.target.value)}>{versions.map(version => <option key={version.id} value={version.id}>{new Date(version.createdAt).toLocaleString()} · {t(version.source)}</option>)}</select></label><Button disabled={busy || dirty || selectedRevision === site.currentRevisionId} onClick={() => { void restore() }}>{t('restore')}</Button></div>
-      <div className="site-editor-panel" key={tab}>{tab === 'preview' ? <><div className="site-toolbar site-preview-toolbar"><span>{t('previewSaved')}</span><div><Button onClick={() => setMobile(false)} aria-pressed={!mobile}>{t('desktop')}</Button><Button onClick={() => setMobile(true)} aria-pressed={mobile}>{t('mobile')}</Button></div></div>{project?.framework === 'nextjs' ? <p>{t('buildNext')}</p> : project ? <div className="site-preview" data-mobile={mobile}><SitePreview key={`${site.id}:${selectedRevision}`} siteId={site.id} revisionId={selectedRevision} title={t('preview')} mobile={mobile} /></div> : <p className="ent-empty">{t('noProject')}</p>}</>
-      : project ? <><div className="site-toolbar"><select disabled={busy} aria-label={t('files')} value={filePath} onChange={event => setFilePath(event.target.value)}>{project.files.map(file => <option value={file.path} key={file.path}>{file.path}</option>)}</select><Button disabled={busy} onClick={exportSource}>{t('export')}</Button><Button variant="primary" className="site-save" aria-busy={busy} disabled={busy || !dirty} onClick={() => { void save() }}>{t(busy ? 'saving' : 'save')}</Button></div>{activeFile?.encoding === 'utf8' ? <textarea disabled={busy} className="site-code" spellCheck={false} aria-label={t('code')} value={activeFile.content} onChange={event => setProject({ ...project, files: project.files.map(file => file.path === filePath ? { ...file, content: event.target.value } : file) })} /> : <p>{t(activeFile ? 'binary' : 'noFiles')}</p>}<div className="site-toolbar"><Input disabled={busy} aria-label={t('fileName')} placeholder={t('fileName')} value={newPath} onChange={event => setNewPath(event.target.value)} /><Button disabled={busy || !newPath.trim() || project.files.some(file => file.path === newPath.trim())} onClick={() => { const path = newPath.trim(); setProject({ ...project, files: [...project.files, { path, content: '', encoding: 'utf8' }] }); setFilePath(path); setNewPath('') }}>{t('addFile')}</Button><Button disabled={busy || !activeFile} onClick={() => setProject({ ...project, files: project.files.filter(file => file.path !== filePath) })}>{t('removeFile')}</Button></div><fieldset className="site-assets" disabled={busy || !maxBodyBytes}><legend>{t('uploadFiles')}</legend><p className="ent-muted">{t('uploadDetail')}</p><div className="site-toolbar"><Input aria-label={t('assetDirectory')} value={assetDirectory} onChange={event => setAssetDirectory(event.target.value)} /><label><input type="checkbox" checked={replaceFiles} onChange={event => setReplaceFiles(event.target.checked)} /> {t('replaceFiles')}</label><input type="file" multiple aria-label={t('selectFiles')} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void upload(files) }} /></div></fieldset></> : <p>{t('noProject')}</p>}</div></> : <p className="ent-empty">{t('noRevision')}</p>}
+      {selectedRevision ? <><div className="site-toolbar"><nav className="ent-tabs">{(['preview', 'code', 'diff', 'activity'] as const).map(value => <button className="ent-tab" aria-pressed={tab === value} key={value} onClick={() => setTab(value)}>{t(value)}</button>)}</nav><label>{t('history')} <select disabled={busy || pending} aria-label={t('history')} value={selectedRevision} onChange={event => setRevision(event.target.value)}>{versions.map(version => <option key={version.id} value={version.id}>{new Date(version.createdAt).toLocaleString()} · {t(version.source)}</option>)}</select></label><Button disabled={busy || pending || site.archived || selectedRevision === site.currentRevisionId} onClick={() => { void restore() }}>{t('restore')}</Button></div>
+      <fieldset className="site-editor-panel" disabled={busy || contentPending || trafficPending} key={tab}>{tab === 'activity' ? <SiteActivityPanel key={`${site.id}:${refresh}`} siteId={site.id} t={t} /> : tab === 'diff' ? <SiteDiffPanel key={`${site.id}:${selectedRevision}`} siteId={site.id} revisionId={selectedRevision} versions={versions} t={t} /> : tab === 'preview' ? <><div className="site-toolbar site-preview-toolbar"><span>{t('previewSaved')}</span><div><Button onClick={() => setMobile(false)} aria-pressed={!mobile}>{t('desktop')}</Button><Button onClick={() => setMobile(true)} aria-pressed={mobile}>{t('mobile')}</Button></div></div>{project?.framework === 'nextjs' ? <p>{t('buildNext')}</p> : project ? <div className="site-preview" data-mobile={mobile}><SitePreview key={`${site.id}:${selectedRevision}`} siteId={site.id} revisionId={selectedRevision} title={t('preview')} mobile={mobile} /></div> : <p className="ent-empty">{t('noProject')}</p>}</>
+      : project ? <><div className="site-toolbar"><select disabled={busy} aria-label={t('files')} value={filePath} onChange={event => setFilePath(event.target.value)}>{project.files.map(file => <option value={file.path} key={file.path}>{file.path}</option>)}</select><Button disabled={busy} onClick={exportSource}>{t('export')}</Button><Button variant="primary" className="site-save" aria-busy={busy} disabled={busy || site.archived || !dirty} onClick={() => { void save() }}>{t(busy ? 'saving' : 'save')}</Button></div>{activeFile?.encoding === 'utf8' ? <textarea disabled={busy || site.archived} className="site-code" spellCheck={false} aria-label={t('code')} value={activeFile.content} onChange={event => setProject({ ...project, files: project.files.map(file => file.path === filePath ? { ...file, content: event.target.value } : file) })} /> : <p>{t(activeFile ? 'binary' : 'noFiles')}</p>}<div className="site-toolbar"><Input disabled={busy} aria-label={t('fileName')} placeholder={t('fileName')} value={newPath} onChange={event => setNewPath(event.target.value)} /><Button disabled={busy || site.archived || !newPath.trim() || project.files.some(file => file.path === newPath.trim())} onClick={() => { const path = newPath.trim(); setProject({ ...project, files: [...project.files, { path, content: '', encoding: 'utf8' }] }); setFilePath(path); setNewPath('') }}>{t('addFile')}</Button><Button disabled={busy || site.archived || !activeFile} onClick={() => setProject({ ...project, files: project.files.filter(file => file.path !== filePath) })}>{t('removeFile')}</Button></div><fieldset className="site-assets" disabled={busy || site.archived || !maxBodyBytes}><legend>{t('uploadFiles')}</legend><p className="ent-muted">{t('uploadDetail')}</p><div className="site-toolbar"><Input aria-label={t('assetDirectory')} value={assetDirectory} onChange={event => setAssetDirectory(event.target.value)} /><label><input type="checkbox" checked={replaceFiles} onChange={event => setReplaceFiles(event.target.checked)} /> {t('replaceFiles')}</label><input type="file" multiple aria-label={t('selectFiles')} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void upload(files) }} /></div></fieldset></> : <p>{t('noProject')}</p>}</fieldset></> : <p className="ent-empty">{t('noRevision')}</p>}
       <details className="site-secondary-options"><summary>{t('editPrompt')}</summary>{promptForm}</details>
-      <SiteOperationsPanel mode="content" key={`ops:${site.id}:${selectedRevision}`} siteId={site.id} t={t} disabled={busy || dirty} saved={id => { setRevision(id); setRefresh(value => value + 1) }} />
+      <SiteOperationsPanel pendingChanged={setContentPending} mode="content" key={`ops:${site.id}:${selectedRevision}`} siteId={site.id} t={t} disabled={busy || site.archived || dirty || trafficPending} saved={id => { setRevision(id); setRefresh(value => value + 1) }} />
       </div>
       <div role="tabpanel" id={sectionId + '-panel-publication'} aria-labelledby={sectionId + '-publication'} hidden={section !== 'publication'}>
-        <SiteLocalPanel mode="publication" key={'publish:' + site.id + ':' + selectedRevision} siteId={site.id} revisionId={selectedRevision} t={t} disabled={busy || dirty} active={section === 'publication'} publicationChanged={() => setRefresh(value => value + 1)} />
-        <details className="site-secondary-options"><summary>{t('hostingTitle')}</summary><SiteHostingPanel key={site.id} siteId={site.id} revisionId={selectedRevision} t={t} /></details>
+        <details className="site-secondary-options"><summary>{t('shopifyTitle')}</summary>{section === 'publication' && <SiteShopifyPanel key={site.id} siteId={site.id} revisionId={selectedRevision} expectedRevisionId={site.currentRevisionId} sourceProject={Boolean(project)} disabled={busy || pending || Boolean(site.archived)} t={t} />}</details>
+        <SiteLocalPanel mode="publication" key={'publish:' + site.id + ':' + selectedRevision} siteId={site.id} revisionId={selectedRevision} t={t} disabled={busy || pending || Boolean(site.archived)} active={section === 'publication'} publicationChanged={() => setRefresh(value => value + 1)} />
+        <details className="site-secondary-options"><summary>{t('hostingTitle')}</summary><fieldset className="site-publish-controls" disabled={busy || pending || site.archived}><SiteHostingPanel key={site.id} siteId={site.id} revisionId={selectedRevision} t={t} /></fieldset></details>
       </div>
       <div role="tabpanel" id={sectionId + '-panel-inquiries'} aria-labelledby={sectionId + '-inquiries'} hidden={section !== 'inquiries'}>
         <SiteLocalPanel mode="inquiries" key={'inbox:' + site.id} siteId={site.id} t={t} disabled={busy} active={section === 'inquiries'} publicationChanged={() => setRefresh(value => value + 1)} />
       </div>
       <div role="tabpanel" id={sectionId + '-panel-statistics'} aria-labelledby={sectionId + '-statistics'} hidden={section !== 'statistics'}>
-        <SiteOperationsPanel mode="traffic" key={'traffic:' + site.id + ':' + selectedRevision} siteId={site.id} t={t} disabled={busy || dirty} saved={id => { setRevision(id); setRefresh(value => value + 1) }} />
+        <SiteOperationsPanel pendingChanged={setTrafficPending} mode="traffic" key={'traffic:' + site.id + ':' + selectedRevision} siteId={site.id} t={t} disabled={busy || site.archived || dirty || contentPending} saved={id => { setRevision(id); setRefresh(value => value + 1) }} />
       </div>
     </>}
     </main></div>
@@ -214,7 +241,8 @@ export function SitesPanel({ t, generate }: Props) {
 /** Responsive Sites management, source editing and publication controls. */
 export const siteStyle = `
 ${siteMotionStyle}
-.site-workspace [hidden]{display:none!important}.site-sections{display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--dsw-alias-bg-layer-2);margin:0 0 22px;max-width:520px}.site-sections button{flex:1;padding:10px 14px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s}.site-sections button[aria-selected=true]{color:var(--site-accent);background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 4px #0000000a}.site-sections button:focus-visible,.site-secondary-options>summary:focus-visible{outline:2px solid var(--site-accent);outline-offset:2px}.site-secondary-options{margin:20px 0;border-top:1px solid var(--dsw-alias-border-l4)}.site-secondary-options>summary{padding:16px 2px;cursor:pointer;color:var(--dsw-alias-label-tertiary);font-size:13px;font-weight:600}.site-creation-primary .site-starter{padding:28px}.site-welcome>.site-template-options{max-width:320px}.site-panel-body{border:0;padding:0;margin:0;min-width:0}.site-panel-body>h3{font-size:16px;margin:0 0 10px}.site-panel-body>p{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-tertiary)}.site-local{margin-top:0}.site-launch-checks{display:grid;gap:0;margin:20px 0}.site-launch-checks>div{display:flex;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--dsw-alias-border-l4);font-size:13px;line-height:1.7}.site-launch-checks dt{flex-shrink:0;color:var(--dsw-alias-label-tertiary)}.site-launch-checks dd{margin:0;text-align:right;overflow-wrap:anywhere;min-width:0}.site-launch-links{font-size:12px;line-height:1.8;margin-top:24px}.site-empty-state{padding:44px 24px;text-align:center;border:1px dashed var(--dsw-alias-border-l4);border-radius:10px;margin:24px 0}.site-empty-state strong{font-size:15px}.site-empty-state p{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-tertiary)}.site-inbox-filters{margin:22px 0;font-size:12px}.site-local input:not([type=checkbox]),.site-local select{padding:9px 12px;margin:8px 0;display:block;border:1px solid var(--dsw-alias-border-l4);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit}.site-local .ent-actions>label{font-size:12px}.site-operations h4{font-size:13px}.site-metric-tables{overflow-x:auto}.site-metric-tables table{min-width:210px;font-size:12px}.site-metric-tables caption{text-align:left;font-weight:600;padding:12px 8px}.site-metrics{font-variant-numeric:tabular-nums}.site-metrics dt{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.site-diff-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.site-diff-columns pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto}@media(max-width:700px){.site-diff-columns{grid-template-columns:1fr}}
+.site-editor-panel,.site-publish-controls{border:0;padding:0;margin:0;min-width:0}.site-workspace [hidden]{display:none!important}.site-sections{display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--dsw-alias-bg-layer-2);margin:0 0 22px;max-width:520px}.site-sections button{flex:1;padding:10px 14px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s}.site-sections button[aria-selected=true]{color:var(--site-accent);background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 4px #0000000a}.site-sections button:focus-visible,.site-secondary-options>summary:focus-visible{outline:2px solid var(--site-accent);outline-offset:2px}.site-secondary-options{margin:20px 0;border-top:1px solid var(--dsw-alias-border-l4)}.site-secondary-options>summary{padding:16px 2px;cursor:pointer;color:var(--dsw-alias-label-tertiary);font-size:13px;font-weight:600}.site-creation-primary .site-starter{padding:28px}.site-welcome>.site-template-options{max-width:320px}.site-panel-body{border:0;padding:0;margin:0;min-width:0}.site-panel-body>h3{font-size:16px;margin:0 0 10px}.site-panel-body>p{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-tertiary)}.site-local{margin-top:0}.site-launch-checks{display:grid;gap:0;margin:20px 0}.site-launch-checks>div{display:flex;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--dsw-alias-border-l4);font-size:13px;line-height:1.7}.site-launch-checks dt{flex-shrink:0;color:var(--dsw-alias-label-tertiary)}.site-launch-checks dd{margin:0;text-align:right;overflow-wrap:anywhere;min-width:0}.site-launch-links{font-size:12px;line-height:1.8;margin-top:24px}.site-empty-state{padding:44px 24px;text-align:center;border:1px dashed var(--dsw-alias-border-l4);border-radius:10px;margin:24px 0}.site-empty-state strong{font-size:15px}.site-empty-state p{font-size:13px;line-height:1.8;color:var(--dsw-alias-label-tertiary)}.site-inbox-filters{margin:22px 0;font-size:12px}.site-local input:not([type=checkbox]),.site-local select{padding:9px 12px;margin:8px 0;display:block;border:1px solid var(--dsw-alias-border-l4);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit}.site-local .ent-actions>label{font-size:12px}.site-operations h4{font-size:13px}.site-metric-tables{overflow-x:auto}.site-metric-tables table{min-width:210px;font-size:12px}.site-metric-tables caption{text-align:left;font-weight:600;padding:12px 8px}.site-metrics{font-variant-numeric:tabular-nums}.site-metrics dt{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 @media(max-width:640px){.site-sections{width:100%;box-sizing:border-box}.site-sections button{padding:10px 5px}.site-launch-checks>div{flex-direction:column;gap:5px}.site-launch-checks dd{text-align:left}.site-creation-primary .site-starter{padding:20px}.site-local .ent-actions{gap:8px}.site-metrics>div{flex:1;min-width:90px}.site-panel-body .site-deployments article>div{flex-wrap:wrap}.site-panel-body p{overflow-wrap:anywhere}}
 @media(prefers-reduced-motion:reduce){.site-sections button{transition:none}}
 .site-workspace{--site-accent:var(--workbench-action,#3655db);font-family:var(--workbench-font,Inter,"Segoe UI","Microsoft YaHei",sans-serif)}.site-shell{max-width:1440px;margin:auto}.site-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0 0 24px}.site-overview>div{padding:18px 20px;border:1px solid var(--dsw-alias-border-l4);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}.site-overview dt{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-bottom:9px}.site-overview dd{font-size:26px;line-height:1.15;font-weight:650;letter-spacing:-.7px;font-variant-numeric:tabular-nums;margin:0}

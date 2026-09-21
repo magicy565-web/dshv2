@@ -13,8 +13,8 @@ English | 中文
 
 ## Known Limitations and Deferred Work
 
-- 当前不包含 Shopify HTTP 客户端、OAuth 回调、token 加密、webhook 注册或结算功能。
-- 商品和主题投影不会把 Shopify 原始 ID 暴露给 Consumer。
+- `GraphqlStoreProvider` 通过 `ShopifyGraphqlClient` 读取目录和主题。OAuth 回调、加密凭据和队列执行由企业 Host 负责；本包不处理结算。
+- 主题发布接受已审核文本路径与 `OnlineStoreTheme` ID，等待返回的写入任务，提升主题并验证在线角色。异步写入要求显式轮询限制与取消信号；企业工作器将传输尝试设为一次，使不确定变更必须经过核对。开发店铺发布仍需单独验收。
 
 ## Model Experience
 

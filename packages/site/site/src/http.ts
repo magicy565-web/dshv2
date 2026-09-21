@@ -1,9 +1,9 @@
 /** Authenticated editor HTTP adapter; the host owns routing and identity resolution. */
 import type { TenantId, StoreConnectionId } from '@deepseek-ai/dsh-shopify'
 import type { SiteService } from './index.ts'
+import type { SiteSpec } from './index.ts'
 import { PublishJobId, SiteId, SiteRevisionId } from './types.ts'
 import { parseSiteChangeSet } from './snapshot.ts'
-import { renderStaticPreview } from './preview.ts'
 
 /** Required host policies for the editor adapter. */
 export interface SiteHttpOptions {
@@ -15,6 +15,10 @@ export interface SiteHttpOptions {
   readonly publicOrigin: string
   /** Maximum UTF-8 JSON request bytes, including envelopes. */
   readonly maxBodyBytes: number
+  /** Verify deployment-owned publication and in-flight work before archival or deletion. */
+  readonly beforeManage?: (spec: SiteSpec, operation: 'archive' | 'delete') => void
+  /** Remove deployment-owned records after the durable deletion receipt commits. */
+  readonly onDeleted?: (spec: SiteSpec) => void
 }
 
 class InputError extends Error {
@@ -84,7 +88,7 @@ export function createSiteHttpHandler(
       const action = parts[2]
       const methods = action === 'revisions' ? ['GET', 'POST']
         : action === undefined || ['jobs', 'content', 'diff', 'preview', 'artifact'].includes(action) ? ['GET']
-          : ['rollback', 'cancel', 'publish'].includes(action) ? ['POST'] : undefined
+          : ['rollback', 'cancel', 'publish', 'manage', 'delete'].includes(action) ? ['POST'] : undefined
       if (!methods) return json({ error: 'not found' }, 404)
       if (!methods.includes(request.method)) return json({ error: 'method not allowed' }, 405)
       const query = new URL(request.url).searchParams
@@ -107,7 +111,7 @@ export function createSiteHttpHandler(
         if (action === 'preview') {
           if (sites.content(spec, revisionId).project) {
             try {
-              return await renderStaticPreview(sites.build(spec, revisionId), query.get('path') ?? '/', (path) => {
+              return await sites.renderArtifact(sites.build(spec, revisionId), query.get('path') ?? '/', (path) => {
                 const url = new URL(request.url)
                 url.searchParams.set('path', path)
                 return `${url.pathname}${url.search}`
@@ -126,6 +130,22 @@ export function createSiteHttpHandler(
       }
       if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405)
       const input = await body(request, options.maxBodyBytes)
+      if (action === 'manage' || action === 'delete') {
+        if (!Number.isSafeInteger(input.expectedVersion) || Number(input.expectedVersion) < 0) return json({ error: 'expectedVersion must be a nonnegative integer' }, 400)
+        if (input.confirmed !== true) return json({ error: 'management confirmation required' }, 400)
+        if (action === 'manage' && ((input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 160)) || (input.archived !== undefined && typeof input.archived !== 'boolean') || (input.name === undefined && input.archived === undefined))) return json({ error: 'invalid site management request' }, 400)
+        try {
+          if (action === 'delete') {
+            options.beforeManage?.(spec, 'delete')
+            sites.deleteSite(spec, Number(input.expectedVersion))
+            options.onDeleted?.(spec)
+            return json({ deleted: true })
+          }
+          if (input.archived === true) options.beforeManage?.(spec, 'archive')
+          return json(sites.manage(spec, Number(input.expectedVersion), { ...(typeof input.name === 'string' ? { name: input.name } : {}), ...(typeof input.archived === 'boolean' ? { archived: input.archived } : {}) }))
+        } catch { return json({ error: 'site management refused; refresh and ensure the site is offline and has no pending work' }, 409) }
+      }
+      if (sites.get(spec)?.archived && action !== undefined && ['revisions', 'rollback', 'publish'].includes(action)) return json({ error: 'restore the archived site before editing or publishing' }, 409)
       if (action === 'revisions') {
         let changes
         try { changes = parseSiteChangeSet(input.changeSet) } catch { throw new InputError(400, 'invalid site change set') }

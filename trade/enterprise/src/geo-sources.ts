@@ -8,7 +8,8 @@ import type { GeoFields } from './geo-schema.ts'
  * @param chunk - One-based indexed passage number.
  * @returns The exact source label returned to the Agent.
  */
-export function documentCitation(asset: Pick<Asset, 'name' | 'source'>, chunk: number): string {
+export function documentCitation(asset: Pick<Asset, 'name' | 'source' | 'ocr'>, chunk: number): string {
+  if (asset.ocr && chunk > asset.ocr.chunkOffset) return `[资料: ${asset.source?.path ?? asset.name}#OCR第${asset.ocr.chunkPages[chunk - asset.ocr.chunkOffset - 1]}页#片段${chunk}]`
   return `[资料: ${asset.source?.path ?? asset.name}#片段${chunk}]`
 }
 

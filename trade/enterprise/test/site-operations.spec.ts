@@ -13,6 +13,7 @@ import { SiteLocal, siteLocalConfig } from '../src/site-local.ts'
 import { siteCompanyContent } from '../src/site-company-schema.ts'
 import { companyTemplateProvider } from '../src/site-company-template.ts'
 import { siteEditor } from '../src/site-editor.ts'
+import { installSiteSystem } from './site-system-fixture.ts'
 
 const content = siteCompanyContent.parse({ name: 'Public firm', description: 'Public facts', business: '', email: '', phone: '', address: '', products: [], qualifications: [] })
 const signal = () => new AbortController().signal
@@ -98,6 +99,7 @@ it('updates reviewed configuration with optimistic revisions and refuses stale f
   const root = await mkdtemp(join(tmpdir(), 'site-setup-')); t.onTestFinished(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const ctx = new Context(); t.onTestFinished(() => ctx.fiber.dispose())
   let digest = 'a'.repeat(64)
+  installSiteSystem(ctx)
   const editor = siteEditor(ctx, root, 'https://company.example', async () => {}, 16777216, undefined, () => ({ digest, content, issues: [], inquiryEndpoint: 'local' }))
   t.onTestFinished(() => editor.close())
   const call = (action: string, siteId?: string, body?: unknown) => editor.fetch(new Request(`https://company.example/sites?${new URLSearchParams({ action, ...(siteId ? { siteId } : {}) })}`, { method: body ? 'POST' : 'GET', ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) }), '/sites')

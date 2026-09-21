@@ -29,6 +29,7 @@ Company、Product、ProductPassport、Evidence、ProductOpportunity、Merchant�
 | GET `/api/manifest` | 版本、命令 Schema、READ / DRAFT / EXECUTE 分类 |
 | GET `/api/products/readiness?id=…` | 所属工厂的缺失字段 |
 | POST `/api/commands` | Schema、授权、版本、幂等和事务审计 |
+| POST `/mcp` | 经认证的供应商通过 Streamable HTTP 建档；[连接及工具流程](README.zh.md#mcp-onboarding) |
 | POST `/api/integration/open`、`/api/integration/resume`、`/api/integration/exchange` | 服务端认证后刷新来源或打开已保存资料；一次性连接码交换有范围限制的浏览器会话 |
 | POST `/api/integration/dispatch` | 原生企业控件通过部署认证转发封闭路由；绑定人类角色，不接受任意主体或 URL |
 | POST `/api/agent/check` | 发送最小模型请求，空响应不视为成功 |
@@ -65,6 +66,7 @@ Launch 的 PAUSED 只预留，当前没有暂停店铺命令。STOP 不自动下
 4. PerformanceSnapshot、Approval。
 5. 来源导入回执和只保存哈希、有有效期的连接码/会话凭证。
 6. 会话身份、Merchant 当前店铺与 Launch 固定店铺引用；不保存 Shopify Token。
+7. 不可变的建档文字来源和绑定确切版本的供应商提交回执。
 
 ## E2E 与缺口
 

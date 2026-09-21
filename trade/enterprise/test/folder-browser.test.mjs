@@ -1,7 +1,7 @@
 /** Real folder chooser and product editing through the shipped dsh Web profile. */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
@@ -27,11 +27,11 @@ test('folder sources persist before onboarding and products support reviewed rev
   await mkdir(products, { recursive: true })
   await writeFile(join(material, 'company.txt'), 'Acme manufactures steel components for equipment makers.')
   await writeFile(join(products, 'AX-1.txt'), 'AX-1 is a steel fitting. MOQ is 100 pieces, subject to final quotation.')
-  await writeFile(join(products, 'AX-1.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==', 'base64'))
+  await writeFile(join(products, 'AX-1.png'), await readFile(new URL('./fixtures/ocr-catalog.png', import.meta.url)))
   await writeFile(join(material, '.env'), 'SYNTHETIC_SECRET=excluded')
   await writeFile(join(material, 'legacy.bin'), 'unsupported source')
   const patch = join(directory, 'override.yml')
-  await writeFile(patch, JSON.stringify([{ id: 'trade-enterprise', config: { directory: join(directory, 'data'), maxFileBytes: 1048576, maxTotalBytes: 10485760, maxExtractedCharacters: 1000000, knowledgeChunkCharacters: 1200, maxKnowledgeResults: 8, maxDecompressedBytes: 134217728, maxArchiveEntries: 5000, maxTableCells: 250000 } }]))
+  await writeFile(patch, JSON.stringify([{ id: 'trade-enterprise', config: { directory: join(directory, 'data'), ...(process.env.DSH_ENTERPRISE_OCR_LANG_PATH ? { ocr: { langPath: process.env.DSH_ENTERPRISE_OCR_LANG_PATH } } : {}), maxFileBytes: 1048576, maxTotalBytes: 10485760, maxExtractedCharacters: 1000000, knowledgeChunkCharacters: 1200, maxKnowledgeResults: 8, maxDecompressedBytes: 134217728, maxArchiveEntries: 5000, maxTableCells: 250000 } }]))
   child = spawn(process.execPath, [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--from-default-profile', 'web', '--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], { cwd: directory, windowsHide: true, env: { ...process.env, DSH_HOME: join(directory, 'home'), DEEPSEEK_API_KEY: '' }, stdio: ['ignore', 'pipe', 'pipe'] })
   let logs = ''
   child.stderr.on('data', data => { logs += data })
@@ -49,19 +49,43 @@ test('folder sources persist before onboarding and products support reviewed rev
   await page.addLocatorHandler(page.getByRole('dialog', { name: '添加一个 API Key 开始使用' }), async dialog => { await dialog.getByRole('button', { name: '稍后配置' }).click() })
   await page.goto(url)
   await page.getByRole('heading', { name: '从企业资料文件夹建档' }).waitFor({ timeout: 20000 })
+  let loseImportResponse = true
+  await page.route('**/api/enterprise/sources/import', async route => {
+    if (!loseImportResponse) { await route.continue(); return }
+    loseImportResponse = false
+    await route.fetch()
+    await route.abort('failed')
+  })
   await page.locator('.ent-source-panel input[type=file]').setInputFiles(material)
+  await page.getByRole('button', { name: '导入所选资料', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: '操作失败，请重试。' }).first().waitFor()
+  await page.locator('.ent-source-selection').getByText('Acme/company.txt', { exact: true }).waitFor()
   await page.getByRole('button', { name: '导入所选资料', exact: true }).click()
   await page.getByRole('button', { name: '读取资料并建档', exact: true }).waitFor()
   await page.waitForFunction(() => !document.querySelector('.ent-source-panel button[disabled]'))
   const api = async () => (await context.request.get(new URL('/api/enterprise', url).href)).json()
   const stored = await api()
   assert.equal(stored.profile, null)
+  assert.equal(stored.imports.length, 1)
   assert.equal(stored.files.length, 3)
   assert.equal(stored.imports[0].files.filter(file => file.status === 'skipped').length, 2)
   assert.equal(stored.files.filter(file => file.knowledgeStatus === 'ready').length, 2)
   assert.ok(stored.files.some(file => file.source.path === 'Acme/Products/AX-1.txt'))
+  await page.getByText('资料共 5 份：已保存 3，等待上传 0，上传失败 0，已跳过 2。', { exact: true }).waitFor()
   await page.reload()
   await page.getByText('Acme/Products/AX-1.txt', { exact: true }).waitFor()
+  if (process.env.DSH_ENTERPRISE_OCR_LANG_PATH) {
+    await page.getByRole('button', { name: '识别图片 / 扫描件', exact: true }).click()
+    await page.getByRole('button', { name: '核对识别文字', exact: true }).waitFor()
+    await page.getByRole('button', { name: '核对识别文字', exact: true }).click()
+    await page.locator('.ent-ocr-review pre').getByText('ACME PRODUCT AX-1', { exact: false }).waitFor()
+    await page.getByRole('button', { name: '文字与原件一致，确认核对', exact: true }).click()
+    await page.getByText('OCR 文字已人工核对', { exact: true }).waitFor()
+    await page.screenshot({ path: join(evidence, 'ocr-review.png'), fullPage: true })
+    await page.reload()
+    await page.getByText('OCR 文字已人工核对', { exact: true }).waitFor()
+    assert.ok((await api()).files.find(file => file.name === 'AX-1.png').ocr.reviewedAt)
+  }
   await page.screenshot({ path: join(evidence, 'folder-desktop.png'), fullPage: true })
   const onboardingId = (await api()).onboarding.sessionId
   await page.getByRole('button', { name: '读取资料并建档', exact: true }).click()

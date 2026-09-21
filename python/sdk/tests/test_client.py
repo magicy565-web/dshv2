@@ -43,6 +43,8 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "running"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
+        site_state = json.load(open(os.environ["SITE_STATE_EXPECTED"], encoding="utf-8"))
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": site_state}}), flush=True)
         print(json.dumps({
             "jsonrpc": "2.0",
             "method": "session.event",
@@ -101,6 +103,7 @@ for line in sys.stdin:
         env={
             "ENV_DUMP": str(env_dump),
             "INIT_DUMP": str(init_dump),
+            "SITE_STATE_EXPECTED": str(Path(__file__).parent / "expected" / "site-state.json"),
             "DEEPSEEK_API_KEY": "env-key",
             "DEEPSEEK_BASE_URL": "http://127.0.0.1:4321",
         },
@@ -110,6 +113,9 @@ for line in sys.stdin:
     assert result.final_response == "hello from runtime"
     assert result.finish_reason == "max-tokens"
     assert result.events[-1]["type"] == "turn/end"
+    assert [event for event in result.events if event["type"] == "site/state"] == [
+        json.loads((Path(__file__).parent / "expected" / "site-state.json").read_text(encoding="utf-8"))
+    ]
     dumped_env = json.loads(env_dump.read_text())
     assert dumped_env["DEEPSEEK_API_KEY"] == "env-key"
     assert dumped_env["DEEPSEEK_BASE_URL"] == "http://127.0.0.1:4321"

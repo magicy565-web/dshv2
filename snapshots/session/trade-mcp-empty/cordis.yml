@@ -1,0 +1,3 @@
+- insert:
+    - id: trade-mcp-fixture
+      name: './trade-mcp-fixture.mjs'
