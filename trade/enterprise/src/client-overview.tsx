@@ -17,7 +17,7 @@ export function EnterpriseOverview({ data, t, navigate }: PropsLocale<'enterpris
   const tasks = data.tasks.filter(task => !task.archived && task.status !== 'done')
   const opportunities = data.opportunities.filter(item => !item.archived && item.status !== 'won' && item.status !== 'lost')
   const metrics: Array<{ destination: Destination; icon: ProfileIconName; labelKey: EnterpriseKey; hint: EnterpriseKey; count: number }> = [
-    { destination: 'supplier', icon: 'company', labelKey: 'workbenchRecords', hint: 'workbenchRecordsHint', count: data.geo.filter(record => record.status === 'confirmed').length },
+    { destination: 'supplier', icon: 'company', labelKey: 'workbenchRecords', hint: 'workbenchRecordsHint', count: data.geo.filter(record => record.status === 'confirmed' && !record.archivedAt && !data.geo.some(next => next.supersedesId === record.id && next.status === 'confirmed')).length },
     { destination: 'assets', icon: 'commercial_policy', labelKey: 'assets', hint: 'workbenchAssetsHint', count: data.files.length },
     { destination: 'opportunities', icon: 'globe', labelKey: 'workbenchLeads', hint: 'workbenchLeadsHint', count: opportunities.length },
     { destination: 'tasks', icon: 'case', labelKey: 'workbenchTasks', hint: 'workbenchTasksHint', count: tasks.length },

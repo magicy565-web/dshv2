@@ -1,7 +1,7 @@
 /** Review the exact company projection before saving a portable website draft. */
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { siteCompanyReview } from './site-company-schema.ts'
 
@@ -14,6 +14,11 @@ export function SiteCompanyPanel({ t, style, created }: PropsLocale<'sites'> & {
   const [confirmed, setConfirmed] = useState(false)
   const [error, setError] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [analytics, setAnalytics] = useState(false)
+  const [scriptUrl, setScriptUrl] = useState('')
+  const [websiteId, setWebsiteId] = useState('')
+  const [dashboardUrl, setDashboardUrl] = useState('')
+  const [agent, setAgent] = useState(false)
   const lifetime = useRef(new AbortController())
   useEffect(() => { const controller = new AbortController(); lifetime.current = controller; return () => controller.abort() }, [])
   const load = async () => {
@@ -30,7 +35,7 @@ export function SiteCompanyPanel({ t, style, created }: PropsLocale<'sites'> & {
     if (!review || !confirmed || busy) return
     setBusy(true); setError(false)
     try {
-      const response = await fetch('/api/enterprise/sites?action=company-create', { method: 'POST', signal: lifetime.current.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ digest: review.digest, style, confirmed: true }) })
+      const response = await fetch('/api/enterprise/sites?action=company-create', { method: 'POST', signal: lifetime.current.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ digest: review.digest, style, confirmed: true, growth: { agent, ...(analytics ? { analytics: { scriptUrl, websiteId, dashboardUrl } } : {}) } }) })
       if (!response.ok) { setConfirmed(false); throw new Error('create') }
       const site = z.object({ id: z.string(), name: z.string(), currentRevisionId: z.string().optional() }).parse(await response.json())
       if (!lifetime.current.signal.aborted) created(site)
@@ -42,8 +47,13 @@ export function SiteCompanyPanel({ t, style, created }: PropsLocale<'sites'> & {
     {error && <p role="alert">{t('companyError')}</p>}
     {review?.issues.map(issue => <p key={issue} role="status">{t(issue === 'profileMissing' ? 'companyMissing' : issue === 'productExcluded' ? 'companyExcluded' : issue === 'productsMissing' ? 'companyProductsMissing' : 'companyError')}</p>)}
     {content && <div className="site-company-review"><h4>{content.name}</h4><p>{content.description}</p><p>{content.business}</p><p>{[content.email, content.phone, content.address].filter(Boolean).join(' · ')}</p>
-      {content.products.map(product => <details key={product.slug}><summary>{product.name}</summary><p>{product.description}</p><ul>{product.applications.map((value, index) => <li key={index}>{value}</li>)}</ul><dl>{product.specifications.map((fact, index) => <div key={index}><dt>{fact.name}</dt><dd>{fact.value}</dd></div>)}</dl></details>)}
+      {content.products.map(product => <details key={product.slug}><summary>{product.name}</summary><p>{product.description}</p><ul>{product.applications.map((value, index) => <li key={index}>{value}</li>)}</ul><dl>{product.specifications.map((fact, index) => <div key={index}><dt>{fact.name}</dt><dd>{fact.value}</dd></div>)}</dl>{[...product.customers, ...product.differences, ...product.limitations].map((value, index) => <p key={index}>{value}</p>)}{product.evidence.map((source, index) => <p key={index}>{source.title}: {source.citation}{source.url && <> · <a href={source.url} target="_blank" rel="noopener noreferrer">{source.url}</a></>}</p>)}</details>)}
       {content.qualifications.map((value, index) => <p key={index}>{value}</p>)}
+      <p>{t('geoGenerated')}</p>
+      <details><summary>{t('manualAnalytics')}</summary><label><input type="checkbox" checked={analytics} disabled={busy} onChange={event => { setAnalytics(event.target.checked); setConfirmed(false) }} /> {t('enableAnalytics')}</label>
+      {analytics && <div className="site-template-options"><label>{t('analyticsScript')}<Input value={scriptUrl} disabled={busy} onChange={event => { setScriptUrl(event.target.value); setConfirmed(false) }} /></label><label>{t('analyticsWebsite')}<Input value={websiteId} disabled={busy} onChange={event => { setWebsiteId(event.target.value); setConfirmed(false) }} /></label><label>{t('analyticsDashboard')}<Input value={dashboardUrl} disabled={busy} onChange={event => { setDashboardUrl(event.target.value); setConfirmed(false) }} /></label><p>{t('analyticsSetup')}</p></div>}
+      </details><label><input type="checkbox" checked={agent} disabled={busy || !review?.agentAvailable} onChange={event => { setAgent(event.target.checked); setConfirmed(false) }} /> {t('enableAgent')}</label>
+      {!review?.agentAvailable && <p>{t('agentSetup')}</p>}
       <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /> {t('companyConfirm')}</label><p><Button variant="primary" disabled={busy || !confirmed} onClick={() => { void create() }}>{t('companyCreate')}</Button></p>
     </div>}
   </article>

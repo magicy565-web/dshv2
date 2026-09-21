@@ -46,11 +46,15 @@ describe('company website projection', () => {
       const content = companySiteReview(profile, [product], 'local', now).content
       for (const style of ['industrial', 'precision', 'international']) {
         const project = templates.generate({ id: companyTemplateId, version: companyTemplateVersion, parameters: { content, style, inquiryEndpoint: 'local' } })
-        expect(project.files.filter(file => file.path.endsWith('.html'))).toHaveLength(8)
+        expect(project.files.filter(file => file.path.endsWith('.html'))).toHaveLength(10)
         const home = project.files.find(file => file.path === 'index.html')!.content
         expect(home).toContain('Acme &lt;Engineering&gt;')
         expect(home).toContain(`theme-${style}`)
         expect(home).not.toMatch(/Northline|Shaft couplings|PRIVATE/)
+        expect(home).toContain('application/ld+json')
+        expect(project.files.find(file => file.path === 'faq/index.html')?.content).toContain('Where is Reviewed coupling used?')
+        expect(project.files.find(file => file.path === 'buying-guide/index.html')?.content).toContain('Engineers')
+        expect(JSON.stringify(project)).not.toContain('PRIVATE-PATH')
         expect(templates.inspect(project).sourceEdited).toBe(false)
       }
     } finally { await ctx.fiber.dispose() }

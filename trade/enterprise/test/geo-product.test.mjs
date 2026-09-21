@@ -49,6 +49,16 @@ test('rejects verification forgery, unsafe URLs and ambiguous values at the inpu
   }
 })
 
+test('invalid optional URLs report their field instead of throwing outside validation', () => {
+  const product = productFixture()
+  product.evidence[0].url = ''
+  const result = geoProduct.safeParse(product)
+  assert.equal(result.success, false)
+  assert.deepEqual(result.error.issues[0].path, ['evidence', 0, 'url'])
+  delete product.evidence[0].url
+  assert.equal(geoProduct.safeParse(product).success, true)
+})
+
 test('refuses missing, future, expired, conflicting and inferred public evidence', () => {
   for (const [change, code] of [
     [p => { p.claims[0].evidenceIds = [] }, 'source_missing'],

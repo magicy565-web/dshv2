@@ -3,7 +3,9 @@ import { snapshotSchema } from './schema.ts'
 import type { Asset, Profile, Snapshot } from './schema.ts'
 import type { EnterpriseKey } from './locales.ts'
 import { zh } from './locales.ts'
+import { sourceManifest } from './source-schema.ts'
 import type { TaskCommand } from './tasks-schema.ts'
+import type { BusinessGoalCommand } from './business-goals-schema.ts'
 import type { OpportunityCommand } from './opportunities-schema.ts'
 
 /** Loading and upload status shared by the profile and asset tabs. */
@@ -49,11 +51,11 @@ export function createModel() {
     catch (error) { publish({ error: errorKey(error instanceof Error ? error.message : undefined) }); return false }
     finally { publish({ busy: false, progress: null }) }
   }
-  const uploadOne = (file: File): Promise<Snapshot> => new Promise((resolve, reject) => {
+  const uploadOne = (file: File, path = '/upload'): Promise<Snapshot> => new Promise((resolve, reject) => {
     if (file.size > (state.data?.maxFileBytes ?? 0)) { reject(new Error('tooLarge')); return }
     const upload = new XMLHttpRequest()
     xhr = upload
-    upload.open('POST', '/api/enterprise/upload')
+    upload.open('POST', `/api/enterprise${path}`)
     upload.setRequestHeader('x-file-name', encodeURIComponent(file.name))
     upload.upload.onprogress = event => publish({ progress: { name: file.name, percent: event.lengthComputable ? Math.round(event.loaded / event.total * 100) : 0 } })
     upload.onload = () => {
@@ -80,7 +82,29 @@ export function createModel() {
     rename: (id: Asset['id'], name: string) => run(() => request('/rename', { id, name })),
     remove: (id: Asset['id']) => run(() => request('/delete', { id })),
     task: (command: TaskCommand) => run(() => request('/tasks', command)),
+    goal: (command: BusinessGoalCommand) => run(() => request('/goals', command)),
     opportunity: (command: OpportunityCommand) => run(() => request('/opportunities', command)),
+    product: (action: 'draft' | 'confirm' | 'archive', body: unknown) => run(() => request(`/products/${action}`, body)),
+    importSources: (files: File[], resumeId?: string) => run(async () => {
+      const input = sourceManifest.parse({ id: resumeId ?? crypto.randomUUID(), files: files.map(file => ({ path: file.webkitRelativePath || file.name, size: file.size })) })
+      let data = resumeId ? await request('') : await request('/sources/import', input)
+      const batch = data.imports?.find(batch => batch.id === input.id)
+      if (!batch) throw new Error('missing')
+      const selected = new Map(files.map(file => [file.webkitRelativePath || file.name, file]))
+      const remaining = batch.files.filter(file => file.status === 'pending' || file.status === 'failed')
+      if (remaining.some(entry => !selected.has(entry.path) || selected.get(entry.path)!.size !== entry.size)) throw new Error('sourceChanged')
+      publish({ data })
+      let failed = false
+      for (const entry of remaining) {
+        if (disposed) throw new Error('uploadFailed')
+        try { data = await uploadOne(selected.get(entry.path)!, `/sources/upload?${new URLSearchParams({ importId: input.id, path: entry.path })}`); publish({ data }) }
+        catch { failed = true }
+      }
+      data = await request('')
+      publish({ data })
+      if (failed) throw new Error('uploadFailed')
+      return data
+    }),
     upload: (files: File[]) => run(async () => {
       let data = state.data
       if (!data) throw new Error('createFirst')

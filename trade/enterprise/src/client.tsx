@@ -23,6 +23,7 @@ import { style } from './style.ts'
 import { workbenchStyle } from './workbench-style.ts'
 import { EnterpriseOverview } from './client-overview.tsx'
 import { TaskPanel } from './client-tasks.tsx'
+import { BusinessGoalPanel } from './client-business-goals.tsx'
 import { OpportunityPanel } from './client-opportunities.tsx'
 import { SitesPanel, siteStyle } from './client-sites.tsx'
 import { siteZh, siteEn } from './site-locales.ts'
@@ -30,6 +31,8 @@ import { ProfileIcon, EnterpriseMark, SitesMark, ComputersMark } from './profile
 import type { ProfileIconName } from './profile-icons.tsx'
 import { SupplierPanel, supplierStyle } from './client-supplier.tsx'
 import { OnboardingPanel, onboardingStyle } from './client-onboarding.tsx'
+import { SourcePanel, sourceStyle } from './client-sources.tsx'
+import { ProductsPanel, productStyle } from './client-products.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 
@@ -38,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 type Model = ReturnType<typeof createModel>
-type Actions = Pick<Model, 'load' | 'save' | 'upload' | 'rename' | 'remove' | 'task' | 'opportunity'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean> }
+type Actions = Pick<Model, 'load' | 'save' | 'upload' | 'rename' | 'remove' | 'task' | 'goal' | 'opportunity' | 'importSources' | 'product'> & { generate: (prompt: string, newSession?: boolean) => Promise<boolean> }
 type Props = PropsRuntime<'main'> & PropsLocale<'enterprise'> & Actions & PropsHooks<{ enterprise: Model['source']; sessions: ISessions['list'] }>
 type T = PropsLocale<'enterprise'>['t']
 const fields = ['name', 'description', 'business', 'website', 'contact', 'email', 'phone', 'address'] as const
@@ -79,18 +82,21 @@ function ProfileForm({ initial, t, busy, onSave, onCancel }: { initial: Profile;
   </form>
 }
 
-function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remove, task, opportunity, generate }: Props) {
+function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remove, task, goal, opportunity, importSources, product, generate }: Props) {
   const state = useEnterprise(value => value)
   const sessions = useSessions(value => value)
-  const [tab, setTab] = useState<'profile' | 'assets' | 'ai' | 'tasks' | 'opportunities' | 'overview' | 'supplier'>('overview')
+  const [tab, setTab] = useState<'profile' | 'products' | 'assets' | 'ai' | 'goals' | 'tasks' | 'opportunities' | 'overview' | 'supplier'>('overview')
+  const [productDirty, setProductDirty] = useState(false)
+  const [pendingTab, setPendingTab] = useState<typeof tab | null>(null)
   const tabList = useRef<HTMLElement>(null)
   const selectTab = (value: typeof tab): void => {
     if (value === tab) return
+    if (productDirty) { setPendingTab(value); return }
     tabList.current?.querySelector<HTMLButtonElement>(`#enterprise-tab-${value}`)?.focus()
     setTab(value)
     setEditing(false)
     setSaved(false)
-    if (value === 'overview' || value === 'ai') void load()
+    if (value === 'overview' || value === 'ai' || value === 'products' || value === 'assets' || value === 'goals' || value === 'tasks') void load()
   }
   const [commerceActive, setCommerceActive] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -109,7 +115,8 @@ function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remo
   useEffect(() => { void load() }, [load])
   const data = state.data
   const profile = data?.profile
-  const assistant = <OnboardingPanel t={t} state={state} conversationStarted={Boolean(data?.onboarding.sessionId && sessions.byId[data.onboarding.sessionId]?.blank === false)} open={() => generate(`/product-geo ${t('onboardingPrompt')}`, true)} />
+  const sourcePanel = <SourcePanel state={state} t={t} importSources={importSources} start={() => generate(`/product-geo ${t('sourcePrompt')}`, true)} />
+  const assistant = <>{sourcePanel}<OnboardingPanel t={t} state={state} conversationStarted={Boolean(data?.onboarding.sessionId && sessions.byId[data.onboarding.sessionId]?.blank === false)} open={() => generate(`/product-geo ${t('onboardingPrompt')}`, true)} /></>
   const assets = data?.files ?? []
   const logo = assets.find(file => file.id === profile?.logoId)
   const visible = assets.filter(file => (filter === 'all' || file.category === filter) && file.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
@@ -144,11 +151,13 @@ function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remo
     {!data ? <div className="ent-empty wb-loading" role="status">{state.busy ? <><div className="wb-skeleton" aria-hidden="true"><i /><i /><i /></div><span>{t('loading')}</span></> : <Button onClick={() => { void load() }}>{t('retry')}</Button>}</div>
       : !profile ? assistant
       : <>
-        <nav ref={tabList} className="ent-tabs" role="tablist" aria-label={t('title')}>{(['overview', 'supplier', 'profile', 'assets', 'opportunities', 'tasks', 'ai'] as const).map(value => <button key={value} id={`enterprise-tab-${value}`} aria-controls="enterprise-panel" tabIndex={tab === value ? 0 : -1} role="tab" className="ent-tab" aria-selected={tab === value} onKeyDown={navigateTabs} onClick={() => selectTab(value)}><ProfileIcon name={({ overview: 'overview', supplier: 'offering', profile: 'company', assets: 'commercial_policy', opportunities: 'globe', tasks: 'case', ai: 'sparkle' } satisfies Record<string, ProfileIconName>)[value]} size={17} />{t(value === 'overview' ? 'workbenchHome' : value === 'supplier' ? 'workbenchCatalog' : value === 'ai' ? 'assistantTitle' : value)}</button>)}</nav>
+        <nav ref={tabList} className="ent-tabs" role="tablist" aria-label={t('title')}>{(['overview', 'products', 'supplier', 'profile', 'assets', 'opportunities', 'goals', 'tasks', 'ai'] as const).map(value => <button key={value} id={`enterprise-tab-${value}`} aria-controls="enterprise-panel" tabIndex={tab === value ? 0 : -1} role="tab" className="ent-tab" aria-selected={tab === value} onKeyDown={navigateTabs} onClick={() => selectTab(value)}><ProfileIcon name={({ overview: 'overview', products: 'offering', supplier: 'offering', profile: 'company', assets: 'commercial_policy', opportunities: 'globe', tasks: 'case', goals: 'solution', ai: 'sparkle' } satisfies Record<string, ProfileIconName>)[value]} size={17} />{t(value === 'overview' ? 'workbenchHome' : value === 'supplier' ? 'workbenchCatalog' : value === 'ai' ? 'assistantTitle' : value)}</button>)}</nav>
         <div key={tab} id="enterprise-panel" className="wb-page" role="tabpanel" aria-labelledby={`enterprise-tab-${tab}`}>
         {tab === 'overview' && <EnterpriseOverview data={data} t={t} navigate={selectTab} />}
+        {tab === 'products' && <ProductsPanel state={state} t={t} command={product} upload={upload} generate={generate} onboarding={() => selectTab('ai')} dirtyChanged={setProductDirty} />}
         {tab === 'supplier' && <SupplierPanel profile={profile} t={t} generate={generate} files={assets} upload={upload} saveMedia={media => save({ ...profile, media })} />}
-        {tab === 'tasks' && <TaskPanel tasks={data.tasks} busy={state.busy} t={t} command={task} />}
+        {tab === 'goals' && <BusinessGoalPanel goals={data.goals} tasks={data.tasks} busy={state.busy} t={t} command={goal} taskCommand={task} generate={generate} />}
+        {tab === 'tasks' && <TaskPanel tasks={data.tasks} goals={data.goals} busy={state.busy} t={t} command={task} />}
         {tab === 'opportunities' && <OpportunityPanel opportunities={data.opportunities} busy={state.busy} t={t} command={opportunity} research={() => { void runGeneration(`/overseas-buyer-research ${t('opportunityResearchPrompt', { name: profile.name })}`, true) }} />}
         {tab === 'profile' ? editing ? <ProfileForm initial={profile} t={t} busy={state.busy} onSave={saveProfile} onCancel={() => setEditing(false)} /> : <div>
           <div className="ent-toolbar"><h2>{t('profile')}</h2><Button variant="outline" icon={<IconEditOutline16 />} disabled={state.busy} onClick={() => setEditing(true)}>{t('edit')}</Button></div>
@@ -157,13 +166,14 @@ function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remo
           <section className="ent-section"><h2>{t('basic')}</h2><dl className="ent-grid">{facts(['name', 'website', 'description', 'business'])}<div className="ent-field"><dt>{t('logo')}</dt><dd><Button variant="outline" onClick={() => setLogoPicker(true)}>{t('chooseLogo')}</Button></dd></div></dl></section>
           <section className="ent-section"><h2>{t('contacts')}</h2><dl className="ent-grid">{facts(['contact', 'email', 'phone', 'address'])}</dl></section>
         </div> : tab === 'assets' ? <div>
+          {sourcePanel}
           <div className="ent-toolbar"><div className="ent-filters">{(['all', 'image', 'video', 'document'] as const).map(value => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(value)}</button>)}</div><Input icon={<IconSearchOutline16 />} value={search} onChange={event => setSearch(event.target.value)} aria-label={t('search')} placeholder={t('search')} /></div>
           <div className="ent-toolbar"><p className="ent-muted">{t('fileCount', { n: visible.length })}</p>{assets.length > 0 && uploadControl}</div>
           {!visible.length ? <div className="ent-empty"><IconFolderOpenOutline16 size={44} /><span>{assets.length ? t('noMatch') : t('empty')}</span>{!assets.length && uploadControl}</div> : <div className="ent-files">{visible.map(asset => <article className="ent-file" key={asset.id}>
             <button className="ent-thumb" title={t('preview')} aria-label={`${t('preview')} ${asset.name}`} onClick={() => setPreview(asset)}>{asset.category === 'image' ? <img loading="lazy" src={fileUrl(asset)} alt={asset.name} /> : asset.category === 'video' ? <video preload="metadata" src={fileUrl(asset)} muted playsInline /> : <IconFolderOpenOutline16 size={40} />}</button>
             <div className="ent-file-info"><p className="ent-file-name" title={asset.name}>{asset.name}</p><p className="ent-muted">{t(asset.category)} · {fileSizeText(asset.size)}</p><p className={`ent-knowledge ent-knowledge-${asset.knowledgeStatus}`}>{knowledgeLabel(asset)}</p><div className="ent-actions">{download(asset)}<Button size="sm" title={t('rename')} aria-label={t('rename')} disabled={state.busy} onClick={() => { setRenaming(asset); setNewName(asset.name) }}><IconEditOutline16 /></Button><Button size="sm" title={t('delete')} aria-label={t('delete')} disabled={state.busy} onClick={() => setDeleting(asset)}><IconTrashOutline16 /></Button></div></div>
           </article>)}</div>}
-        </div> : tab === 'tasks' || tab === 'opportunities' || tab === 'overview' || tab === 'supplier' ? null : <div>
+        </div> : tab === 'goals' || tab === 'tasks' || tab === 'opportunities' || tab === 'overview' || tab === 'supplier' || tab === 'products' ? null : <div>
           {assistant}
           <section className="ent-section"><h2>{t('aiTitle')}</h2><p className="ent-muted">{t('aiDescription')}</p><p className="ent-status">{t('knowledgeCount', { ready: knowledgeReady, total: assets.length })}</p></section>
           {generationError && <p role="alert" className="ent-notice">{t('generationFailed')}</p>}
@@ -189,6 +199,7 @@ function Panel({ t, useEnterprise, useSessions, load, save, upload, rename, remo
       {!assets.some(file => file.category === 'image') && <p>{t('logoEmpty')}</p>}
       <div className="ent-logo-options">{assets.filter(file => file.category === 'image').map(asset => <button key={asset.id} disabled={state.busy} title={asset.name} onClick={() => { void selectLogo(asset.id) }}><img src={fileUrl(asset)} alt={asset.name} /><p>{asset.name}</p></button>)}</div>
     </Modal>
+    <Modal open={pendingTab !== null} onClose={() => setPendingTab(null)} title={t('productDiscardTitle')} closeLabel={t('close')} description={t('productDiscardHint')} footer={<><Button onClick={() => setPendingTab(null)}>{t('cancel')}</Button><Button onClick={() => { if (pendingTab) setTab(pendingTab); setPendingTab(null); setProductDirty(false) }}>{t('supplierDiscard')}</Button></>} />
     <div className="wb-commerce" hidden={!commerceActive && (!profile || tab !== 'overview')}><CommerceEntry t={t} onActiveChange={setCommerceActive} /></div>
   </div></section>
 }
@@ -226,7 +237,7 @@ export function apply(ctx: Context): void {
       let sessionId = current === model.source.getSnapshot().data?.onboarding.sessionId && !prompt.startsWith('/product-geo ') ? undefined : current
       if (newSession && prompt.startsWith('/product-geo ')) {
         sessionId = await ensureOnboarding()
-        if (!ctx.sessions.list.getSnapshot().byId[sessionId]?.blank) {
+        if (!ctx.sessions.list.getSnapshot().byId[sessionId]?.blank && prompt === `/product-geo ${t('onboardingPrompt')}`) {
           ctx.sessions.open(sessionId)
           ctx.layout.selectPanel(null)
           return true
@@ -250,7 +261,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register('sites', { zh: siteZh, en: siteEn }), 'sites: locale')
   ctx.effect(() => {
     const sheet = document.createElement('style')
-    sheet.textContent = style + siteStyle + supplierStyle + computerMotionStyle + onboardingStyle + workbenchStyle
+    sheet.textContent = style + siteStyle + supplierStyle + computerMotionStyle + onboardingStyle + workbenchStyle + sourceStyle + productStyle
     document.head.append(sheet)
     return () => sheet.remove()
   }, 'enterprise: styles')
@@ -271,7 +282,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'sites', locale: 'sites', inject: () => ({ generate }) }, SitesPanel))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'enterprise', order: 10, label: () => t('title') }, EnterpriseMark))
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'enterprise', locale: 'enterprise', inject: () => ({
-    load: model.load, save: model.save, upload: model.upload, rename: model.rename, remove: model.remove, task: model.task, opportunity: model.opportunity, generate, hooks: { enterprise: model.source, sessions: ctx.sessions.list },
+    load: model.load, save: model.save, upload: model.upload, rename: model.rename, remove: model.remove, task: model.task, goal: model.goal, opportunity: model.opportunity, importSources: model.importSources, product: model.product, generate, hooks: { enterprise: model.source, sessions: ctx.sessions.list },
   }) }, Panel))
   ctx.effect(() => {
     let disposed = false

@@ -17,6 +17,7 @@ export const geoFields = z.object({
   questions: z.string().trim().max(2000),
   product: geoProduct.optional(),
   supplier: supplierGraph.optional(),
+  assetIds: z.array(z.string().uuid().brand<'EnterpriseFileId'>()).max(100).optional(),
 }).strict()
 /** Persisted draft and optimistic revision receipt. */
 export const geoRecord = geoFields.extend({
@@ -27,6 +28,7 @@ export const geoRecord = geoFields.extend({
   updatedAt: z.iso.datetime(), confirmedAt: z.iso.datetime().nullable(),
   supersedesId: geoId.nullable().default(null),
   productVerifiedAt: z.iso.datetime().optional(),
+  archivedAt: z.iso.datetime().nullable().optional(),
 }).strict()
 /** Persisted conversation and user-confirmed catalog scope. */
 export const geoProgress = z.object({ sessionId: onboardingSessionId.nullable(), revision: z.number().int().nonnegative(), scopeIds: z.array(geoId), completedAt: z.iso.datetime().nullable() }).strict()

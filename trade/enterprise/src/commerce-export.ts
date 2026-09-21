@@ -14,7 +14,7 @@ const sourced = (value: NonNullable<SourceFact>['value'], sourceStatus: string, 
  */
 export function exportCommerce(profile: Profile | null, records: GeoRecord[]): EnterpriseTransfer {
   if (!profile) return { version: 1, company: null, products: [] }
-  const current = records.filter(r => !records.some(s => s.supersedesId === r.id && s.status === 'confirmed'))
+  const current = records.filter(r => !r.archivedAt && !records.some(s => s.supersedesId === r.id && s.status === 'confirmed'))
   const company: NonNullable<EnterpriseTransfer['company']> = { sourceId: profile.companyEntityId ?? 'enterprise-profile', revision: 0, confirmedAt: null, facts: {
     display_name: sourced(profile.name, 'enterprise_profile', 'enterprise.profile.name'),
     ...(profile.identity.legalName ? { legal_name: sourced(profile.identity.legalName, 'enterprise_profile', 'enterprise.profile.identity.legalName') } : {}),

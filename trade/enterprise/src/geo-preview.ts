@@ -19,7 +19,7 @@ function escape(value: unknown): string {
  */
 export function productPreview(record: GeoRecord, now: Date) {
   const product = record.product
-  if (record.kind !== 'product' || record.status !== 'confirmed' || !product || !productReadiness(product, Boolean(record.productVerifiedAt), now).previewReady) return null
+  if (record.kind !== 'product' || record.archivedAt || record.status !== 'confirmed' || !product || !productReadiness(product, Boolean(record.productVerifiedAt), now).previewReady) return null
   const words = copy[product.locale]
   const claims = product.claims.filter(claim => claim.public)
   const known = claims.filter(claim => claim.status === 'declared' && claim.value.type !== 'unknown')

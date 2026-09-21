@@ -2,10 +2,10 @@
 import { z } from 'zod'
 
 const text = z.string().trim().min(1).max(3000)
-const webUrl = z.url({ protocol: /^https?$/ }).refine(value => {
+const webUrl = z.url({ protocol: /^https?$/ }).pipe(z.string().refine(value => {
   const url = new URL(value)
   return !url.username && !url.password
-}, 'URLs must not contain credentials')
+}, 'URLs must not contain credentials'))
 const reference = z.object({ id: text, name: text, url: webUrl }).strict()
 const value = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), value: text }).strict(),

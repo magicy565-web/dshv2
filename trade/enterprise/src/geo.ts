@@ -38,6 +38,21 @@ export function geoStore(db: DatabaseSync) {
     list,
     get,
     progress,
+    invalidate: (): void => { const value = progress(); saveProgress({ ...value, completedAt: null, revision: value.revision + 1 }) },
+    archive: (id: GeoRecord['id'], expectedRevision: number, archived: boolean): GeoRecord => transact(() => {
+      const current = get(id)
+      if (!current || current.kind !== 'product') throw new GeoError(404, 'missing')
+      if (current.revision !== expectedRevision || list().some(record => record.supersedesId === id)) throw new GeoError(409, 'geoConflict')
+      const family = [current]
+      let ancestor = current.supersedesId ? get(current.supersedesId) : null
+      while (ancestor) { family.push(ancestor); ancestor = ancestor.supersedesId ? get(ancestor.supersedesId) : null }
+      if (family.some(record => record.product?.publication.siteStatus === 'published' || record.product?.publication.shopifyProductId)) throw new GeoError(409, 'productPublished')
+      const value = progress()
+      saveProgress({ ...value, completedAt: null, revision: value.revision + 1 })
+      const archivedAt = archived ? new Date().toISOString() : null
+      for (const record of family.slice(1)) write({ ...record, revision: record.revision + 1, archivedAt })
+      return write({ ...current, revision: current.revision + 1, archivedAt })
+    }),
     ensureSession: (sessionId: NonNullable<ReturnType<typeof progress>['sessionId']>) => transact(() => {
       const value = progress()
       if (value.sessionId) return value
@@ -48,7 +63,7 @@ export function geoStore(db: DatabaseSync) {
     verifyProduct: (id: GeoRecord['id'], expectedRevision: number): GeoRecord => transact(() => {
       const current = get(id)
       if (!current || current.kind !== 'product') throw new GeoError(404, 'missing')
-      if (current.revision !== expectedRevision || current.status !== 'confirmed') throw new GeoError(409, 'geoConflict')
+      if (current.archivedAt || current.revision !== expectedRevision || current.status !== 'confirmed') throw new GeoError(409, 'geoConflict')
       const now = new Date()
       if (!productReadiness(current.product, true, now).previewReady) throw new GeoError(409, 'geoIncomplete')
       return write({ ...current, revision: current.revision + 1, productVerifiedAt: now.toISOString(), updatedAt: now.toISOString() })
@@ -61,7 +76,7 @@ export function geoStore(db: DatabaseSync) {
     finish: (records: GeoRecord[]) => transact(() => {
       for (const record of records) {
         const current = get(record.id)
-        if (!current || current.status !== 'confirmed' || current.revision !== record.revision) throw new GeoError(409, 'geoConflict')
+        if (!current || current.archivedAt || current.status !== 'confirmed' || current.revision !== record.revision) throw new GeoError(409, 'geoConflict')
       }
       const all = list()
       if (records.some(record => all.some(other => other.supersedesId === record.id))) throw new GeoError(409, 'geoConflict')
@@ -70,7 +85,7 @@ export function geoStore(db: DatabaseSync) {
     }),
     setPublication: (id: GeoRecord['id'], publication: NonNullable<GeoRecord['product']>['publication']): GeoRecord => transact(() => {
       const current = get(id)
-      if (!current || current.kind !== 'product' || current.status !== 'confirmed' || !current.product) throw new GeoError(409, 'geoIncomplete')
+      if (!current || current.archivedAt || current.kind !== 'product' || current.status !== 'confirmed' || !current.product) throw new GeoError(409, 'geoIncomplete')
       return write({ ...current, product: { ...current.product, publication }, updatedAt: new Date().toISOString() })
     }),
     propose: (id: GeoRecord['id'], expectedRevision: number, fields: GeoFields, sessionId: GeoRecord['sessionId'], supersedesId: GeoRecord['id'] | null = null, createdBy: GeoRecord['createdBy'] = 'agent'): GeoRecord => transact(() => {
@@ -80,9 +95,10 @@ export function geoStore(db: DatabaseSync) {
       const existing = get(id)
       if (supersedesId) {
         const original = get(supersedesId)
-        if (!original || original.status !== 'confirmed' || original.kind !== fields.kind || list().some(record => record.supersedesId === supersedesId && record.id !== id)) throw new GeoError(409, 'geoConflict')
+        if (!original || original.archivedAt || original.status !== 'confirmed' || original.kind !== fields.kind || list().some(record => record.supersedesId === supersedesId && record.id !== id)) throw new GeoError(409, 'geoConflict')
       }
       if (existing) {
+        if (existing.archivedAt) throw new GeoError(409, 'geoConflict')
         if (existing.supersedesId !== supersedesId) throw new GeoError(409, 'geoConflict')
         if (existing.sessionId === sessionId && JSON.stringify(Object.fromEntries(Object.keys(fields).map(key => [key, existing[key as keyof GeoFields]]))) === JSON.stringify(fields)) return existing
         if (existing.revision !== expectedRevision || existing.status !== 'draft') throw new GeoError(409, 'geoConflict')
@@ -96,7 +112,7 @@ export function geoStore(db: DatabaseSync) {
     confirm: (id: GeoRecord['id'], expectedRevision: number, onConfirm: (record: GeoRecord) => void): GeoRecord => transact(() => {
       const current = get(id)
       if (!current) throw new GeoError(404, 'missing')
-      if (current.revision !== expectedRevision || current.status !== 'draft') throw new GeoError(409, 'geoConflict')
+      if (current.archivedAt || current.revision !== expectedRevision || current.status !== 'draft') throw new GeoError(409, 'geoConflict')
       if (geoMissing(current).length) throw new GeoError(409, 'geoIncomplete')
       const now = new Date().toISOString()
       const confirmed = write({ ...current, revision: current.revision + 1, status: 'confirmed', updatedAt: now, confirmedAt: now })

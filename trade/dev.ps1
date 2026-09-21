@@ -15,6 +15,8 @@ $originalGitExecPath = $env:GIT_EXEC_PATH
 $originalDshHome = $env:DSH_HOME
 $originalClientCommitHash = $env:DSH_CLIENT_COMMIT_HASH
 $originalCommerceLink = $env:DSH_COMMERCE_LINK_SECRET_JSON
+$originalComputerRoutines = $env:DSH_COMPUTER_ROUTINES
+$computerEnvironment = @{}
 
 try {
     foreach ($installed in @('C:\Program Files\nodejs', 'C:\Program Files\Git\cmd')) {
@@ -60,6 +62,27 @@ try {
             throw 'Build artifacts are missing. Run trade\dev.ps1 -Action Install, then -Action Build.'
         }
         $env:DSH_HOME = Join-Path $projectRoot '.trade-runtime'
+        $computerSecretDirectory = Join-Path $env:USERPROFILE '.dsh-private\grokbot'
+        if ([string]::IsNullOrWhiteSpace($env:DSH_COMPUTER_ROUTINES) -and (Test-Path -LiteralPath $computerSecretDirectory)) {
+            $computerRoutines = @()
+            foreach ($computerSecretFile in @(Get-ChildItem -LiteralPath $computerSecretDirectory -Filter '*.clixml' -File | Sort-Object Name)) {
+                $computerSecret = Import-Clixml -LiteralPath $computerSecretFile.FullName
+                if ([string]::IsNullOrWhiteSpace($computerSecret.account) -or $computerSecret.senderKey -isnot [System.Security.SecureString]) {
+                    throw 'Saved Grok Bot configuration requires an account and a Windows-encrypted sender key.'
+                }
+                $computerIndex = $computerRoutines.Count
+                $computerUrlName = "DSH_GROK_SAVED_${computerIndex}_URL"
+                $computerKeyName = "DSH_GROK_SAVED_${computerIndex}_KEY"
+                foreach ($variableName in @($computerUrlName, $computerKeyName)) {
+                    $computerEnvironment[$variableName] = [Environment]::GetEnvironmentVariable($variableName, 'Process')
+                }
+                [Environment]::SetEnvironmentVariable($computerUrlName, $computerSecret.webhookUrl, 'Process')
+                [Environment]::SetEnvironmentVariable($computerKeyName, [System.Net.NetworkCredential]::new('', $computerSecret.senderKey).Password, 'Process')
+                $computerRoutines += @{ account = $computerSecret.account; urlEnv = $computerUrlName; keyEnv = $computerKeyName }
+            }
+            $env:DSH_COMPUTER_ROUTINES = ConvertTo-Json -InputObject @($computerRoutines) -Compress
+            $computerSecret = $null
+        }
         $commerceLink = Join-Path $env:DSH_HOME 'commerce-link.json'
         if ([string]::IsNullOrWhiteSpace($env:DSH_COMMERCE_LINK_SECRET_JSON) -and (Test-Path -LiteralPath $commerceLink)) {
             $env:DSH_COMMERCE_LINK_SECRET_JSON = Get-Content -LiteralPath $commerceLink -Raw
@@ -85,4 +108,8 @@ finally {
     $env:DSH_HOME = $originalDshHome
     $env:DSH_CLIENT_COMMIT_HASH = $originalClientCommitHash
     $env:DSH_COMMERCE_LINK_SECRET_JSON = $originalCommerceLink
+    $env:DSH_COMPUTER_ROUTINES = $originalComputerRoutines
+    foreach ($variableName in $computerEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($variableName, $computerEnvironment[$variableName], 'Process')
+    }
 }

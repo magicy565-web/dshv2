@@ -22,6 +22,7 @@ const profile = {
   logoId: null,
 }
 const limits = {
+  maxSourceFiles: 1000,
   maxFileBytes: 1024,
   maxTotalBytes: 2048,
   maxExtractedCharacters: 10000,
@@ -31,6 +32,142 @@ const limits = {
   maxArchiveEntries: 100,
   maxTableCells: 1000,
 }
+
+test('folder onboarding inventories every file, persists reading and requires source coverage before scope confirmation', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-folder-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  harness = await mount(directory, { maxFileBytes: 20000, maxTotalBytes: 50000, maxKnowledgeResults: 1, maxSourceFiles: 3 })
+  const post = async (path, data) => harness.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'folder-session' } } }
+  const call = (name, args) => harness.tools.get(name).execute(args, exec)
+  const content = 'Acme manufactures industrial parts. Product AX-1 uses steel and serves equipment buyers.\n'.repeat(16)
+  const id = crypto.randomUUID(), path = 'Acme/products/catalog.txt'
+  const manifest = { id, files: [{ path, size: Buffer.byteLength(content) }, { path: 'Acme/.env', size: 30 }, { path: 'Acme/archive.exe', size: 10 }] }
+  assert.equal((await post('/sources/import', manifest)).status, 200)
+  assert.equal((await post('/sources/import', manifest)).status, 200)
+  assert.equal((await post('/sources/import', { ...manifest, files: [{ path: '../escape.txt', size: 10 }] })).status, 400)
+  assert.equal((await post('/sources/import', { id: crypto.randomUUID(), files: Array.from({ length: 4 }, (_, i) => ({ path: `Excess/${i}.txt`, size: 10 })) })).status, 413)
+  assert.equal((await post('/sources/import', { id: crypto.randomUUID(), files: [manifest.files[0], manifest.files[0]] })).status, 400)
+  assert.equal((await harness.request(`/sources/upload?${new URLSearchParams({ importId: id, path: 'Acme/.env' })}`, { method: 'POST', headers: { 'x-file-name': '.env' }, body: 'secret' })).status, 400)
+  const upload = () => harness.request(`/sources/upload?${new URLSearchParams({ importId: id, path })}`, { method: 'POST', headers: { 'x-file-name': 'catalog.txt' }, body: content })
+  assert.equal((await upload()).status, 201)
+  assert.equal((await upload()).status, 200)
+  const stored = await (await harness.request('')).json()
+  assert.equal(stored.files.length, 1)
+  assert.equal(stored.profile, null)
+  assert.deepEqual(stored.files[0].source, { importId: id, path })
+  assert.deepEqual(stored.imports[0].files.map(file => file.status), ['imported', 'skipped', 'skipped'])
+  const first = await call('enterprise_sources', { action: 'list' })
+  assert.equal(first.total, 3)
+  assert.equal(first.nextOffset, 1)
+  const fileId = first.files[0].fileId
+  const assessment = { action: 'assess', importId: id, path, disposition: 'used', reason: 'Company identity and AX-1 specifications.' }
+  await assert.rejects(call('enterprise_sources', assessment), /sourceUnread/)
+  let nextChunk = 1, citations = []
+  do {
+    const page = await call('enterprise_sources', { action: 'read', fileId, chunk: nextChunk })
+    citations.push(...page.chunks.map(chunk => chunk.citation))
+    nextChunk = page.nextChunk
+  } while (nextChunk !== null)
+  await harness.dispose()
+  harness = await mount(directory, { maxFileBytes: 20000, maxTotalBytes: 50000, maxKnowledgeResults: 1 })
+  assert.equal((await call('enterprise_sources', { action: 'list' })).files[0].readChunks.length, citations.length)
+  const ids = []
+  for (const kind of ['company', 'product']) {
+    const recordId = crypto.randomUUID(); ids.push(recordId)
+    await call('enterprise_geo_draft', { id: recordId, expectedRevision: 0, fields: { kind, name: kind === 'company' ? 'Acme' : 'AX-1', description: 'Industrial parts', sections: [{ label: 'Business', content: 'Manufactures steel parts', source: citations[0] }], questions: '' } })
+    assert.deepEqual((await (await harness.request('')).json()).geo.find(record => record.id === recordId).assetIds, [fileId])
+    await call('enterprise_geo_review', { id: recordId, expectedRevision: 1, language: 'zh' })
+    assert.equal(harness.getReview().questions[0].question, kind === 'company' ? '请确认企业资料草稿是否准确。' : '请确认产品资料草稿是否准确。')
+  }
+  await assert.rejects(call('enterprise_geo_finish', { ids, language: 'zh' }), /sourceUnread/)
+  await call('enterprise_sources', assessment)
+  harness.setAnswer(async () => {
+    await call('enterprise_sources', { ...assessment, disposition: 'excluded', reason: 'Changed scope while confirmation was open' })
+    return { answers: [{ id: 'geo-finish', selected: ['确认'] }] }
+  })
+  await assert.rejects(call('enterprise_geo_finish', { ids, language: 'zh' }), /geoConflict/)
+  await call('enterprise_sources', assessment)
+  harness.setAnswer({ answers: [{ id: 'geo-finish', selected: ['确认'] }] })
+  assert.equal((await call('enterprise_geo_finish', { ids, language: 'zh' })).completed, true)
+  assert.match(harness.getReview().questions[0].detail, /Acme\/\.env/)
+  assert.equal((await (await harness.request('')).json()).profile.name, 'Acme')
+  await post('/sources/import', { id: crypto.randomUUID(), files: [{ path: 'Extra/notes.txt', size: 5 }] })
+  assert.equal((await (await harness.request('')).json()).onboarding.completedAt, null)
+  await assert.rejects(call('enterprise_geo_finish', { ids, language: 'zh' }), /sourceUnread/)
+})
+
+test('folder retries preserve completed uploads and truncated or deleted sources cannot count as fully read', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-folder-retry-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  harness = await mount(directory, { maxExtractedCharacters: 512, knowledgeChunkCharacters: 512 })
+  const post = (path, data) => harness.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
+  const id = crypto.randomUUID(), path = 'Acme/large.txt', body = 'x'.repeat(800)
+  const exec = { signal: new AbortController().signal }
+  const source = args => harness.tools.get('enterprise_sources').execute(args, exec)
+  await post('/sources/import', { id, files: [{ path, size: 800 }] })
+  const endpoint = `/sources/upload?${new URLSearchParams({ importId: id, path })}`
+  assert.equal((await harness.request(endpoint, { method: 'POST', headers: { 'x-file-name': 'large.txt' }, body: 'short' })).status, 400)
+  assert.equal((await (await harness.request('')).json()).imports[0].files[0].status, 'failed')
+  assert.equal((await harness.request(endpoint, { method: 'POST', headers: { 'x-file-name': 'wrong.txt' }, body })).status, 400)
+  assert.equal((await harness.request(endpoint, { method: 'POST', headers: { 'x-file-name': 'large.txt' }, body })).status, 201)
+  const file = (await source({ action: 'list' })).files[0]
+  assert.equal(file.textTruncated, true)
+  assert.equal((await source({ action: 'read', fileId: file.fileId })).textTruncated, true)
+  await assert.rejects(source({ action: 'assess', importId: id, path, disposition: 'used', reason: 'Read prefix' }), /sourceTruncated/)
+  await source({ action: 'assess', importId: id, path, disposition: 'needs_input', reason: 'Please provide smaller documents' })
+  assert.equal((await post('/delete', { id: file.fileId })).status, 200)
+  const missing = (await source({ action: 'list' })).files[0]
+  assert.equal(missing.missing, true)
+  assert.equal(missing.assessment, null)
+  await assert.rejects(source({ action: 'read', fileId: file.fileId }), /missing/)
+})
+
+test('product workspace retains confirmed versions, rejects stale edits and shares archived state with Agent reads', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-products-'))
+  let harness
+  t.after(async () => { await harness?.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  harness = await mount(directory)
+  const post = (path, data) => harness.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
+  const id = crypto.randomUUID(), fields = { kind: 'product', name: 'AX-1', description: 'Steel part', sections: [{ label: 'Material', content: 'Steel', source: 'User declaration' }], questions: '' }
+  assert.equal((await post('/products/draft', { id, expectedRevision: 0, fields: { ...fields, assetIds: [crypto.randomUUID()] } })).status, 404)
+  assert.equal((await post('/products/draft', { id, expectedRevision: 0, fields })).status, 200)
+  assert.equal((await post('/products/confirm', { id, expectedRevision: 1 })).status, 200)
+  assert.equal((await post('/products/draft', { id, expectedRevision: 2, fields: { ...fields, name: 'Changed' } })).status, 409)
+  const successor = crypto.randomUUID()
+  assert.equal((await post('/products/draft', { id: successor, expectedRevision: 0, supersedesId: id, fields: { ...fields, description: 'Revised steel part' } })).status, 200)
+  assert.equal((await post('/products/confirm', { id: successor, expectedRevision: 9 })).status, 409)
+  assert.equal((await post('/products/confirm', { id: successor, expectedRevision: 1 })).status, 200)
+  assert.equal((await post('/products/archive', { id: successor, expectedRevision: 2, archived: true })).status, 200)
+  const status = await harness.tools.get('enterprise_geo_status').execute({}, { signal: new AbortController().signal })
+  assert.equal(status.records.length, 0)
+  await harness.dispose(); harness = await mount(directory)
+  const records = (await (await harness.request('')).json()).geo
+  assert.equal(records.find(record => record.id === id).description, 'Steel part')
+  assert.ok(records.find(record => record.id === successor).archivedAt)
+  assert.equal((await post('/products/archive', { id: successor, expectedRevision: 3, archived: false })).status, 200)
+})
+
+test('archived verified products cannot be previewed, verified or published', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'enterprise-product-archive-'))
+  const harness = await mount(directory)
+  t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
+  const exec = { signal: new AbortController().signal, agent: { session: { id: 'product-archive-session' } } }
+  const call = (name, args) => harness.tools.get(name).execute(args, exec)
+  const id = crypto.randomUUID()
+  await call('enterprise_geo_draft', { id, expectedRevision: 0, fields: { kind: 'product', name: 'R-821', description: 'Printed fabric', sections: [{ label: 'Material', content: 'Viscose', source: 'Catalog page 4' }], questions: '', product: productFixture() } })
+  await call('enterprise_geo_review', { id, expectedRevision: 1, language: 'zh' })
+  harness.setAnswer({ answers: [{ id: 'geo-verify', selected: ['确认'] }] })
+  await call('enterprise_geo_verify', { id, expectedRevision: 2, language: 'zh' })
+  assert.equal((await harness.request('/products/archive', { method: 'POST', body: JSON.stringify({ id, expectedRevision: 3, archived: true }) })).status, 200)
+  assert.equal((await harness.request(`/products/preview?id=${id}`)).status, 409)
+  assert.equal((await harness.request(`/products/readiness?id=${id}`)).status, 404)
+  await assert.rejects(call('enterprise_geo_verify', { id, expectedRevision: 4, language: 'zh' }), /geoConflict/)
+  await assert.rejects(call('enterprise_site_publish', { id, slug: 'archived' }), /geoIncomplete/)
+  await assert.rejects(call('enterprise_shopify_sync', { id, connectionId: 'unused', handle: 'archived' }), /geoIncomplete/)
+})
 
 test('commerce routes reuse the existing Host and request publication scopes only for a bound merchant', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'enterprise-commerce-host-'))
@@ -94,7 +231,7 @@ async function mount(directory, overrides = {}) {
     effect(callback) { activate = callback },
     on(name, callback) { listeners.set(name, callback); return () => listeners.delete(name) },
   }
-  apply(ctx, { directory, ...limits, ...overrides })
+  apply(ctx, Config.parse({ directory, ...limits, ...overrides }))
   assert.ok(activate)
   const stop = await activate()
   let disposal
@@ -410,7 +547,7 @@ test('creates task revisions and rejects stale updates', async t => {
   t.after(async () => { await harness.dispose(); await rm(directory, { recursive: true, force: true }) })
   await harness.request('/profile', { method: 'POST', body: JSON.stringify(profile), duplex: 'half' })
   const id = crypto.randomUUID()
-  const fields = { title: 'Approve catalog', description: 'Review the draft', assignee: 'Ada', dueDate: '2030-01-02', status: 'todo' }
+  const fields = { title: 'Approve catalog', description: 'Review the draft', assignee: 'Ada', dueDate: '2030-01-02', status: 'todo', goalId: null, outcome: '' }
   let response = await harness.request('/tasks', { method: 'POST', body: JSON.stringify({ action: 'create', id, fields }), duplex: 'half' })
   assert.equal(response.status, 200)
   assert.equal((await response.json()).tasks[0].revision, 1)

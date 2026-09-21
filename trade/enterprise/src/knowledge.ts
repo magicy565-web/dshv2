@@ -39,19 +39,22 @@ function officeFileType(mime: string): SupportedFileType {
   }
 }
 
-async function readUtf8(path: string, maxCharacters: number, signal: AbortSignal): Promise<string> {
+async function readUtf8(path: string, maxCharacters: number, signal: AbortSignal): Promise<{ text: string; truncated: boolean }> {
   const decoder = new TextDecoder('utf-8', { fatal: true })
   let text = ''
+  let characters = 0
   try {
     for await (const value of createReadStream(path, { signal })) {
       const chunk = value as Buffer
       if (chunk.includes(0)) throw new InvalidTextFileError()
       const decoded = decoder.decode(chunk, { stream: true })
+      characters += decoded.length
       if (text.length < maxCharacters) text += decoded.slice(0, maxCharacters - text.length)
     }
     const tail = decoder.decode()
+    characters += tail.length
     if (text.length < maxCharacters) text += tail.slice(0, maxCharacters - text.length)
-    return text
+    return { text, truncated: characters > maxCharacters }
   } catch (error) {
     if (error instanceof InvalidTextFileError || signal.aborted) throw error
     if (error instanceof TypeError) throw new InvalidTextFileError()
@@ -116,6 +119,18 @@ export async function extractKnowledge(
   limits: KnowledgeLimits,
   signal: AbortSignal,
 ): Promise<string[]> {
+  return (await extractDocument(path, mime, limits, signal)).chunks
+}
+
+/**
+ * Extract bounded text while reporting whether source content was omitted by the character limit.
+ * @param path - Private stored file.
+ * @param mime - Detected document MIME type.
+ * @param limits - Configured extraction limits.
+ * @param signal - Upload or Host cancellation.
+ * @returns Indexed chunks and a truncation flag; truncation cannot count as complete source coverage.
+ */
+export async function extractDocument(path: string, mime: string, limits: KnowledgeLimits, signal: AbortSignal): Promise<{ chunks: string[]; truncated: boolean }> {
   const raw = mime === 'text/plain'
     ? await readUtf8(path, limits.maxExtractedCharacters, signal)
     : String((await (await OfficeParser.parseOffice(path, {
@@ -134,6 +149,8 @@ export async function extractKnowledge(
       includeCharts: false,
       abortSignal: signal,
     })).value)
-  const normalized = normalizeText(raw, limits.maxExtractedCharacters)
-  return normalized ? chunkText(normalized, limits.knowledgeChunkCharacters) : []
+  const content = typeof raw === 'string' ? raw : raw.text
+  const truncated = typeof raw === 'string' ? raw.length > limits.maxExtractedCharacters : raw.truncated
+  const normalized = normalizeText(content, limits.maxExtractedCharacters)
+  return { chunks: normalized ? chunkText(normalized, limits.knowledgeChunkCharacters) : [], truncated }
 }

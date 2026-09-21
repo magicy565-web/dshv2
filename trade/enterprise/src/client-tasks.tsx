@@ -4,11 +4,18 @@ import { Button, Input, Modal, IconPlusOutline16, IconEditOutline16 } from '@dee
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { taskFields, taskId, taskHistorySchema } from './tasks-schema.ts'
 import type { EnterpriseTask, TaskCommand, TaskFields } from './tasks-schema.ts'
+import { businessGoalId } from './business-goals-schema.ts'
+import type { BusinessGoal } from './business-goals-schema.ts'
 
 type T = PropsLocale<'enterprise'>['t']
 const statuses = ['todo', 'in_progress', 'blocked', 'done'] as const
 const statusKey = { todo: 'taskTodo', in_progress: 'taskInProgress', blocked: 'taskBlocked', done: 'taskDone' } as const
-const empty: TaskFields = { title: '', description: '', assignee: '', dueDate: null, status: 'todo' }
+const empty: TaskFields = { title: '', description: '', assignee: '', dueDate: null, status: 'todo', goalId: null, outcome: '' }
+
+function fieldsOf(task: EnterpriseTask): TaskFields {
+  const { title, description, assignee, dueDate, status, goalId, outcome } = task
+  return { title, description, assignee, dueDate, status, goalId, outcome }
+}
 
 function History({ task, t }: { task: EnterpriseTask; t: T }) {
   const [history, setHistory] = useState<ReturnType<typeof taskHistorySchema.parse> | null>(null)
@@ -29,7 +36,7 @@ function History({ task, t }: { task: EnterpriseTask; t: T }) {
     <strong>{t('taskRevision', { n: record.task.revision })} · {record.task.title}</strong>
     <p>{t(statusKey[record.task.status])} · {record.task.archived ? t('taskArchivedLabel') : t('taskActive')} · {record.task.assignee || t('taskUnassigned')}</p>
     <p>{record.task.dueDate ?? t('taskNoDueDate')} · {new Date(record.task.updatedAt).toLocaleString()}</p>
-    <p className="ent-task-description">{record.task.description}</p><small>{t('taskSharedActor')}</small>
+    <p className="ent-task-description">{record.task.description}</p>{record.task.goalId && <p>{t('taskGoal')}: {record.task.goalId}</p>}{record.task.outcome && <p className="ent-task-description">{t('taskOutcome')}: {record.task.outcome}</p>}<small>{t('taskSharedActor')}</small>
   </li>)}</ol>
 }
 
@@ -38,7 +45,7 @@ function History({ task, t }: { task: EnterpriseTask; t: T }) {
  * @param props - Tasks, busy state, locale, and mutation command.
  * @returns Task list and editing dialogs.
  */
-export function TaskPanel({ tasks, busy, t, command }: { tasks: EnterpriseTask[]; busy: boolean; t: T; command: (value: TaskCommand) => Promise<boolean> }) {
+export function TaskPanel({ tasks, goals, busy, t, command, initialGoalId = null, allowCreate = true }: { tasks: EnterpriseTask[]; goals: BusinessGoal[]; busy: boolean; t: T; command: (value: TaskCommand) => Promise<boolean>; initialGoalId?: BusinessGoal['id'] | null; allowCreate?: boolean }) {
   const [archived, setArchived] = useState(false)
   const [search, setSearch] = useState('')
   const [editor, setEditor] = useState<{ original: EnterpriseTask | null; id: EnterpriseTask['id']; draft: TaskFields } | null>(null)
@@ -56,16 +63,16 @@ export function TaskPanel({ tasks, busy, t, command }: { tasks: EnterpriseTask[]
   }
   return <div>
     <div className="ent-toolbar">
-      <Button icon={<IconPlusOutline16 />} variant="primary" disabled={busy} onClick={() => { setFailed(false); setEditor({ original: null, id: taskId.parse(crypto.randomUUID()), draft: { ...empty } }) }}>{t('taskCreate')}</Button>
+      {allowCreate && <Button icon={<IconPlusOutline16 />} variant="primary" disabled={busy} onClick={() => { setFailed(false); setEditor({ original: null, id: taskId.parse(crypto.randomUUID()), draft: { ...empty, goalId: initialGoalId } }) }}>{t('taskCreate')}</Button>}
       <Input aria-label={t('taskSearch')} placeholder={t('taskSearch')} value={search} onChange={event => setSearch(event.target.value)} />
       <label><input type="checkbox" checked={archived} onChange={event => setArchived(event.target.checked)} /> {t('taskShowArchived')}</label>
     </div>
     {!visible.length && <p className="ent-empty">{t('taskEmpty')}</p>}
     <div className="ent-task-list">{visible.map(task => <article className="ent-task-row" key={task.id}>
-      <div><h3>{task.title}</h3><p className="ent-task-description">{task.description}</p><p className="ent-muted">{task.assignee || t('taskUnassigned')} · {task.dueDate ?? t('taskNoDueDate')} · {t('taskRevision', { n: task.revision })}</p></div>
+      <div><h3>{task.title}</h3><p className="ent-task-description">{task.description}</p><p className="ent-muted">{task.assignee || t('taskUnassigned')} · {task.dueDate ?? t('taskNoDueDate')} · {t('taskRevision', { n: task.revision })}</p><p>{task.goalId ? goals.find(goal => goal.id === task.goalId)?.title ?? t('businessGoalMissing') : t('taskNoGoal')}</p>{task.outcome && <p className="ent-task-description">{t('taskOutcome')}: {task.outcome}</p>}</div>
       <div className="ent-actions">
-        <select aria-label={`${t('taskStatus')} ${task.title}`} value={task.status} disabled={busy || task.archived} onChange={event => { const { title, description, assignee, dueDate } = task; void command({ action: 'update', id: task.id, expectedRevision: task.revision, fields: { title, description, assignee, dueDate, status: event.target.value as TaskFields['status'] } }) }}>{statuses.map(status => <option value={status} key={status}>{t(statusKey[status])}</option>)}</select>
-        {!task.archived && <Button title={t('taskEdit')} aria-label={t('taskEdit')} disabled={busy} onClick={() => { setFailed(false); const { title, description, assignee, dueDate, status } = task; setEditor({ original: task, id: task.id, draft: { title, description, assignee, dueDate, status } }) }}><IconEditOutline16 /></Button>}
+        <select aria-label={`${t('taskStatus')} ${task.title}`} value={task.status} disabled={busy || task.archived} onChange={event => { const fields = { ...fieldsOf(task), status: event.target.value as TaskFields['status'] }; if (!taskFields.safeParse(fields).success) { setFailed(false); setEditor({ original: task, id: task.id, draft: fields }) } else void command({ action: 'update', id: task.id, expectedRevision: task.revision, fields }) }}>{statuses.map(status => <option value={status} key={status}>{t(statusKey[status])}</option>)}</select>
+        {!task.archived && <Button title={t('taskEdit')} aria-label={t('taskEdit')} disabled={busy} onClick={() => { setFailed(false); setEditor({ original: task, id: task.id, draft: fieldsOf(task) }) }}><IconEditOutline16 /></Button>}
         <Button disabled={busy} onClick={() => setHistory(task)}>{t('taskHistory')}</Button>
         <Button disabled={busy} onClick={() => { void command({ action: 'archive', id: task.id, expectedRevision: task.revision, archived: !task.archived }) }}>{t(task.archived ? 'taskRestore' : 'taskArchive')}</Button>
       </div>
@@ -75,9 +82,11 @@ export function TaskPanel({ tasks, busy, t, command }: { tasks: EnterpriseTask[]
         {failed && <p role="alert">{t('taskSaveFailed')}</p>}
         <label className="ent-field"><span>{t('taskTitle')}</span><Input autoFocus required maxLength={240} value={editor.draft.title} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, title: event.target.value } })} /></label>
         <label className="ent-field"><span>{t('taskDescription')}</span><textarea maxLength={5000} value={editor.draft.description} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, description: event.target.value } })} /></label>
+        <label className="ent-field"><span>{t('taskGoal')}</span><select value={editor.draft.goalId ?? ''} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, goalId: event.target.value ? businessGoalId.parse(event.target.value) : null } })}><option value="">{t('taskNoGoal')}</option>{goals.filter(goal => goal.id === editor.original?.goalId || (!goal.archived && goal.status === 'active')).map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label>
         <label className="ent-field"><span>{t('taskAssignee')}</span><Input maxLength={160} value={editor.draft.assignee} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, assignee: event.target.value } })} /></label>
         <label className="ent-field"><span>{t('taskDueDate')}</span><Input type="date" value={editor.draft.dueDate ?? ''} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, dueDate: event.target.value || null } })} /></label>
         <label className="ent-field"><span>{t('taskStatus')}</span><select value={editor.draft.status} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, status: event.target.value as TaskFields['status'] } })}>{statuses.map(status => <option key={status} value={status}>{t(statusKey[status])}</option>)}</select></label>
+        <label className="ent-field"><span>{t('taskOutcome')}</span><textarea required={editor.draft.goalId !== null && editor.draft.status === 'done'} maxLength={5000} value={editor.draft.outcome} onChange={event => setEditor({ ...editor, draft: { ...editor.draft, outcome: event.target.value } })} /><small>{t('taskOutcomeHint')}</small></label>
         <Button type="submit" variant="primary" disabled={busy || !taskFields.safeParse(editor.draft).success}>{t('save')}</Button>
       </form>}
     </Modal>

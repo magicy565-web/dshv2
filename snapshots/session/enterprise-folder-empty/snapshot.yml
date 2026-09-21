@@ -1,0 +1,8 @@
+version: 1
+scenario: enterprise-folder-empty
+profile: headless
+composition: enterprise-folder
+recording: authored
+header:
+  class: enterprise-folder
+  pin: true

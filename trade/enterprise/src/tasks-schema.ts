@@ -1,5 +1,6 @@
 /** Enterprise task records are independent of agent Session plans. */
 import { z } from 'zod'
+import { businessGoalId } from './business-goals-schema.ts'
 
 /** Stable identity of an enterprise-owned task. */
 export const taskId = z.string().uuid().brand<'EnterpriseTaskId'>()
@@ -10,9 +11,11 @@ export const taskFields = z.object({
   assignee: z.string().trim().max(160),
   dueDate: z.iso.date().nullable(),
   status: z.enum(['todo', 'in_progress', 'blocked', 'done']),
-}).strict()
+  goalId: businessGoalId.nullable(),
+  outcome: z.string().trim().max(5000),
+}).strict().refine(value => value.status !== 'done' || value.goalId === null || value.outcome.length > 0, { path: ['outcome'], message: 'A completed goal task requires an outcome.' })
 /** Persisted task with optimistic concurrency and reversible archival. */
-export const taskSchema = taskFields.extend({
+export const taskSchema = taskFields.safeExtend({
   id: taskId,
   revision: z.number().int().positive(),
   archived: z.boolean(),

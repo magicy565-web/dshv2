@@ -39,6 +39,7 @@ export const computerJob = computerJobInput.extend({
 })
 /** Browser command input; only humans can accept a result. */
 export const computerCommand = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('wake'), id: computerJobId, expectedRevision: z.number().int().positive() }).strict(),
   z.object({ action: z.literal('bind'), fields: computerFields }).strict(),
   z.object({ action: z.literal('rotate'), id: computerId }).strict(),
   z.object({ action: z.literal('disconnect'), id: computerId }).strict(),
@@ -56,8 +57,15 @@ export const computerReport = z.object({
 export type ComputerBinding = z.infer<typeof computerBinding>
 /** Durable computer job returned through authenticated routes. */
 export type ComputerJob = z.infer<typeof computerJob>
+/** Provider acknowledgement does not establish task execution or completion. */
+export const computerWake = z.object({
+  jobId: z.string().uuid(), revision: z.number().int().positive(),
+  state: z.enum(['sending', 'accepted', 'rejected', 'unknown']),
+  status: z.number().int().nullable(), at: z.string(),
+})
 /** Workspace computer snapshot, including the reusable enterprise file picker. */
 export const computerSnapshot = z.object({
+  routines: z.array(z.string()).default([]), wakes: z.array(computerWake).default([]),
   bindings: z.array(computerBinding), jobs: z.array(computerJob),
   files: z.array(z.object({ id: fileId, name: z.string() })),
   approvals: z.array(z.object({ id: z.string(), status: z.string(), revision: z.number() })),

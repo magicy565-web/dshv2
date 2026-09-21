@@ -1,5 +1,8 @@
 /** Product copy for enterprise computer management. */
 export const computerZh = {
+  routineGuide: '打开单账号接入与验收说明', routineGuideUrl: '/api/enterprise/computer-guide?lang=zh',
+  routineConfigured: '已配置 Routine Webhook；分配新任务时自动通知，是否执行以领取和回报为准。', routineMissing: '尚未配置 Routine Webhook；请先在 Grok Bot 按接入说明安装任务命令并配置 Routine。',
+  wakeRoutine: '通知 Bot 检查任务', wakeAccepted: 'Grok Bot 已接受唤醒，等待任务回报', wakeRejected: 'Grok Bot 未接受唤醒，请检查 Routine 和凭据', wakeSending: '正在通知 Grok Bot', wakeUnknown: '唤醒结果未知，请在 Grok Bot 核实；不会自动重发',
   workspaceLabel: '企业工作空间', fleetCount: '已绑定工位', fleetCountHint: '纳入企业工作空间', onlineCount: '当前在线', onlineCountHint: '根据连接器最近心跳', runningCount: '执行中任务', runningCountHint: '执行方已领取并开始', attentionCount: '待处理', attentionCountHint: '审批、验收或状态核实',
   setupLabel: '开始协作', nextAction: '需要你处理', setupBind: '绑定已有工位', setupBindHelp: '设置岗位与授权范围', setupConnect: '连接云端电脑', setupConnectHelp: '安装连接器，确认在线', setupAssign: '分配并验收工作', setupAssignHelp: '授权资料，核对交付成果',
   searchComputers: '搜索工位名称、岗位或账号', filterComputers: '筛选工位', allComputers: '全部工位', noMatchingComputers: '没有符合条件的工位', clearFilters: '清除筛选', manageConnection: '连接管理', capabilityLimits: '能力与使用范围', emptyHelp: '连接后可在这里管理工位、查看任务并验收交付。',
@@ -28,7 +31,7 @@ export const computerZh = {
   motionDemoCaption: '动效演示 · 可逐项切换状态', motionSnapshotCaption: '最近读取的任务记录 · 页面可见时每 5 秒更新', motionCaption: '示意画面不代表实时连接状态',
   motionFleet: '企业工位', motionFleetHint: '查看连接状态，分配工作并跟进交付',
   title: '企业云电脑', intro: '绑定已有 Grokbot 工位，分配资料与工作，并验收成果。',
-  limits: '单企业部署。桌面查看和操作需要云端连接器及 X11；自然语言任务仍需在原生 Grok Bot 领取，尚未接通自动唤醒与模型执行。',
+  limits: '单企业部署。每个账号须安装任务命令并配置 Grok Bot Routine；Webhook 只负责唤醒。桌面查看和操作需要云端连接器及 X11。停止请求需要执行方确认，结果需要人工验收。',
   bind: '绑定工位', name: '工位名称', account: '独立供应商账号标识', worker: '岗位名称', nativeUrl: '原生电脑 HTTPS 入口（不含令牌或查询参数）', instructions: '岗位职责与授权规则',
   isolation: '同一账号的 Bot 共享文件和登录态。不同信任范围请使用独立账号；岗位说明不能限制已登录网站的权限。',
   empty: '尚未绑定工位', save: '保存', close: '关闭', refresh: '刷新', refreshing: '刷新中', refreshed: '已刷新', error: '操作未完成，请刷新核对状态后再试。',
@@ -47,6 +50,9 @@ export const computerZh = {
 export type ComputerLocaleKey = keyof typeof computerZh
 /** English computer management copy. */
 export const computerEn: Record<ComputerLocaleKey, string> = {
+  routineGuide: 'Open single-account setup and acceptance guide', routineGuideUrl: '/api/enterprise/computer-guide?lang=en',
+  routineConfigured: 'Routine Webhook configured. New assignments notify the Bot; claims and reports establish execution.', routineMissing: 'Routine Webhook is not configured. Install the task commands and configure a Grok Bot Routine using the setup guide.',
+  wakeRoutine: 'Notify Bot to check work', wakeAccepted: 'Grok Bot accepted the wakeup; waiting for task reports', wakeRejected: 'Grok Bot rejected the wakeup; check the Routine and credentials', wakeSending: 'Notifying Grok Bot', wakeUnknown: 'Wakeup outcome unknown. Check Grok Bot; this request will not be resent automatically.',
   workspaceLabel: 'Enterprise workspace', fleetCount: 'Bound workstations', fleetCountHint: 'Added to this workspace', onlineCount: 'Online now', onlineCountHint: 'Based on connector heartbeats', runningCount: 'Running jobs', runningCountHint: 'Claimed and started by a worker', attentionCount: 'Needs attention', attentionCountHint: 'Approval, review or verification',
   setupLabel: 'Get started', nextAction: 'Your attention needed', setupBind: 'Bind a workstation', setupBindHelp: 'Set its role and permissions', setupConnect: 'Connect your computer', setupConnectHelp: 'Run the connector and check presence', setupAssign: 'Assign and review work', setupAssignHelp: 'Share context and check deliverables',
   searchComputers: 'Search workstations, roles or accounts', filterComputers: 'Filter workstations', allComputers: 'All workstations', noMatchingComputers: 'No matching workstations', clearFilters: 'Clear filters', manageConnection: 'Manage connection', capabilityLimits: 'Capabilities and scope', emptyHelp: 'Connected workstations, jobs and deliverables will appear here.',
@@ -75,7 +81,7 @@ export const computerEn: Record<ComputerLocaleKey, string> = {
   motionDemoCaption: 'Motion demo · Explore each state', motionSnapshotCaption: 'Latest fetched task records · Updates every 5 seconds while visible', motionCaption: 'Illustrations do not establish connection status',
   motionFleet: 'Enterprise workstations', motionFleetHint: 'Check connections, assign work and follow delivery',
   title: 'Enterprise computers', intro: 'Bind an existing Grokbot workstation, assign authorized work and review deliverables.',
-  limits: 'Single-enterprise deployment. Desktop viewing and input require the connector and X11. Natural-language jobs still need native Grok Bot; automatic wake-up and model execution are not connected.',
+  limits: 'Single-enterprise deployment. Each account needs the task commands and a Grok Bot Routine; the Webhook only wakes the Bot. Desktop viewing and input require the connector and X11. Stop requests need worker confirmation; results need human acceptance.',
   bind: 'Bind computer', name: 'Computer name', account: 'Dedicated provider account identifier', worker: 'Worker name', nativeUrl: 'Native computer HTTPS URL (no token or query)', instructions: 'Responsibilities and authorization rules',
   isolation: 'Bots on one account share files and sign-ins. Separate trust groups require separate accounts. Instructions cannot restrict signed-in websites.',
   empty: 'No computers bound', save: 'Save', close: 'Close', refresh: 'Refresh', refreshing: 'Refreshing', refreshed: 'Updated', error: 'The operation was not confirmed. Refresh and inspect the state before retrying.',

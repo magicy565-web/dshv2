@@ -1,0 +1,140 @@
+services:
+  app:
+    build:
+      context: ../../../..
+      dockerfile: trade/enterprise/sites/deploy/Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      DSH_SITES_PUBLIC_URL: https://${SITE_DOMAIN:?Missing domain}
+      SITE_MODEL: ${SITE_MODEL:-qwen3:8b}
+      OLLAMA_API_KEY: local-only
+      SITE_MODEL_TIMEOUT_MS: ${SITE_MODEL_TIMEOUT_MS:-180000}
+    ports: ["127.0.0.1:${ADMIN_PORT:-3080}:3080"]
+    volumes:
+      - app-data:/data
+      - ./private/site-services.json:/config/site-services.json:ro
+    depends_on: [ollama]
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Run init.mjs first}
+      METRICS_DOMAIN: ${METRICS_DOMAIN:?Run init.mjs first}
+    ports: ["${HTTP_PORT:-80}:80", "${HTTPS_PORT:-443}:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [app, umami]
+  umami:
+    image: ${UMAMI_IMAGE:-ghcr.io/umami-software/umami:latest}
+    restart: unless-stopped
+    init: true
+    environment:
+      DATABASE_URL: postgresql://umami:${POSTGRES_PASSWORD:?Missing password}@postgres:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:?Missing secret}
+      TWO_FACTOR_ENCRYPTION_KEY: ${UMAMI_2FA_KEY:?Missing secret}
+    ports: ["127.0.0.1:${UMAMI_ADMIN_PORT:-3081}:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing password}
+    volumes: ["umami-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    restart: unless-stopped
+    environment: { OLLAMA_CONTEXT_LENGTH: "32768" }
+    volumes: ["model-data:/root/.ollama"]
+  searxng:
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
+    restart: unless-stopped
+    environment: { FORCE_OWNERSHIP: "false" }
+    volumes: ["./private/searxng.yml:/etc/searxng/settings.yml:ro", "search-data:/var/cache/searxng"]
+  ntfy:
+    image: ${NTFY_IMAGE:-binwiederhier/ntfy:latest}
+    command: ["serve"]
+    restart: unless-stopped
+    environment:
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+    ports: ["127.0.0.1:${NTFY_PORT:-3082}:80"]
+    volumes: ["ntfy-data:/var/lib/ntfy"]
+  crm-db:
+    profiles: [crm]
+    image: ${MARIADB_IMAGE:-mariadb:11.4}
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: espocrm
+      MARIADB_USER: espocrm
+      MARIADB_PASSWORD: ${CRM_DB_PASSWORD:?Missing password}
+      MARIADB_ROOT_PASSWORD: ${CRM_ROOT_PASSWORD:?Missing password}
+    volumes: ["crm-db:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  espocrm:
+    profiles: [crm]
+    image: ${ESPOCRM_IMAGE:-espocrm/espocrm:10}
+    restart: unless-stopped
+    environment:
+      ESPOCRM_DATABASE_HOST: crm-db
+      ESPOCRM_DATABASE_USER: espocrm
+      ESPOCRM_DATABASE_PASSWORD: ${CRM_DB_PASSWORD:?Missing password}
+      ESPOCRM_ADMIN_USERNAME: admin
+      ESPOCRM_ADMIN_PASSWORD: ${CRM_ADMIN_PASSWORD:?Missing password}
+      ESPOCRM_SITE_URL: http://localhost:${CRM_PORT:-3083}
+    ports: ["127.0.0.1:${CRM_PORT:-3083}:80"]
+    volumes: ["crm-data:/var/www/html/data", "crm-custom:/var/www/html/custom", "crm-client:/var/www/html/client/custom"]
+    depends_on:
+      crm-db: { condition: service_healthy }
+  crm-daemon:
+    profiles: [crm]
+    image: ${ESPOCRM_IMAGE:-espocrm/espocrm:10}
+    entrypoint: docker-daemon.sh
+    restart: unless-stopped
+    volumes: ["crm-data:/var/www/html/data", "crm-custom:/var/www/html/custom", "crm-client:/var/www/html/client/custom"]
+    depends_on: [espocrm]
+  backup:
+    profiles: [tools]
+    image: ${RESTIC_IMAGE:-restic/restic:latest}
+    environment:
+      RESTIC_REPOSITORY: /repository
+      RESTIC_PASSWORD_FILE: /config/restic-password
+    volumes:
+      - ./backups:/repository
+      - ./private:/config:ro
+      - ./private:/snapshot/config:ro
+      - app-data:/snapshot/app:ro
+      - umami-data:/snapshot/umami:ro
+      - ntfy-data:/snapshot/ntfy:ro
+      - crm-db:/snapshot/crm-db:ro
+      - crm-data:/snapshot/crm-data:ro
+      - crm-custom:/snapshot/crm-custom:ro
+      - crm-client:/snapshot/crm-client:ro
+      - caddy-data:/snapshot/caddy:ro
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:
+  umami-data:
+  model-data:
+  search-data:
+  ntfy-data:
+  crm-db:
+  crm-data:
+  crm-custom:
+  crm-client:

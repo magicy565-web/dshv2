@@ -14,6 +14,7 @@ kind: "package-reference"
 ## 目录
 
 - [连接工位](#connect-a-workstation)
+- [打通一个真实 Grok Bot 账号](#grokbot-routine)
 - [远程桌面连接器](#remote-desktop-connector)
 - [动效预览](#motion-preview)
 - [执行方 HTTP 连接器](#worker-http-connector)
@@ -30,6 +31,39 @@ kind: "package-reference"
 5. 在 Workspace 打开上传成果并验收。登录、验证码及其他人工操作通过原生电脑完成。
 
 同一供应商账号下的 Bot 可能共享文件和凭据。不同安全域必须使用独立供应商账号，包括跨部署的情况。Host 会拒绝本部署中的重复账号标识，但无法识别账号别名或证明供应商隔离。岗位说明和连接器审批无法限制已登录网站中的操作，应通过供应商及源系统权限落实限制。
+
+<a id="grokbot-routine"></a>
+## 打通一个真实 Grok Bot 账号
+
+先准备一个已登录的 Grok Bot 账号和一台可工作的电脑。[供应商隔离](https://docs.x.ai/grok-bot/computer-and-apps)按用户划分：同一账号的 Bots 共享文件和登录态。在 DSH 中只绑定一次该账号。创建 DSH 绑定不会创建供应商电脑。保持 DSH Host 运行，并通过云电脑可访问的 HTTPS 地址开放执行方接口。
+
+1. 从**云电脑控制台 → 连接设置与诊断**下载连接器，放到 Grok Bot 电脑的持久目录。先运行 `python3 computer_connector.py --help`，确认列出 `claim`、`job`、`report`、`download`、`upload` 和 `routine`；旧版连接器须先替换再配置。在该电脑的终端运行 `python3 computer_connector.py configure`，输入 DSH HTTPS 地址，并在隐藏提示中输入工位凭据。运行 `python3 computer_connector.py check`。这一步检查 DSH 连通性，不代表 Grok Bot 已能执行任务。
+2. 运行 `python3 computer_connector.py routine` 输出执行说明。让 Bot 按照该说明创建 Routine，将其中的 `computer_connector.py` 替换为真实绝对路径。Routine 不包含凭据。Bot 通过命令行领取任务、读取授权输入、回报进展和上传实际文件；具体任务由 Bot 在其应用中执行。
+3. 在保存的 Routine 中配置 Webhook，将 **POST to** 地址和 **key** 分别保存到 DSH Host 的私有环境变量。[官方 Routine 指南](https://cursor.com/help/grok-bot/routines)说明了这些字段及 Bearer 认证。如果账号不显示这些字段，可在供应商应用明确配置定时 Routine 或手动 Test run；DSH 无法生成缺失的 Webhook 凭据。定时执行存在延迟，每次运行都会消耗供应商用量。
+4. 按下例设置 `DSH_COMPUTER_ROUTINES`，账号标识必须与 DSH 工位完全对应，然后重启 trade 配置。引用的地址和密钥变量必须存在。缺失值、重复账号或无效 HTTPS 地址会导致配置失败。地址和密钥值只留在 Host，不通过工位列表返回。
+
+```json
+[{"account":"my-grok-account","urlEnv":"DSH_GROK_ONE_WEBHOOK_URL","keyEnv":"DSH_GROK_ONE_WEBHOOK_KEY"}]
+```
+
+5. 分配只读任务：打开一个公开网页，记录标题和地址，并上传包含你指定的唯一短语的 Markdown 报告。观察**已接受唤醒**、任务被领取、文件上传和**待验收**。打开文件，与真实来源核对后验收。仅有 Webhook 回执、连接器心跳或模拟截图不能通过此项检查。
+6. 用同一账号验证停止请求和输入文件授权。完成这次往返后再添加第二个账号。每个新增账号都需要独立电脑、连接器配置、Routine 和地址及密钥环境变量引用。Host 按账号路由，失败时不会自动换号。
+
+匹配到 Routine 配置且该账号没有未处理完的工作时，新建任务会为最早的排队任务发送一次唤醒。只有 HTTP 200 记录为已接受；任何 HTTP 状态都不会把任务标记为完成。发送前持久化派发记录，不自动重试。网络失败或派发中重启会留下未知结果：先在原生应用核对已有工作，再从那里运行 Routine。修复配置后，可用**通知 Bot 检查任务**重试被拒绝的派发。此按钮也能在人工处理或审批后唤醒执行方，但不会授予审批。验收、失败或确认取消后，Host 唤醒该账号的下一项排队任务。未处理完的工作或不确定的执行状态会阻止此交接。
+
+`computerWakeTimeoutMs` 限定回执等待时间（默认 15000，范围 1000–60000）。命令行提供 `claim`、`job`、`report`、`download` 和 `upload`，参数见 `--help`。写入必须提供已观察的 `--revision`；上传需要从零开始的 `--output`，并核对回执 SHA-256 与本地字节。下载不会覆盖已有文件。`--max-file-bytes` 限定传输大小（默认 268435456）；Host 上传配额仍有效。连接器不重试写入，也不解释自然语言。远程桌面心跳仍由可选的独立 `run --desktop` 进程负责。
+
+在 Windows 上，未设置 `DSH_COMPUTER_ROUTINES` 时，`trade/dev.ps1` 也会从 `%USERPROFILE%\.dsh-private\grokbot` 加载已保存的 `*.clixml` Webhook 记录。每条记录包含 `account`、`webhookUrl`，以及保存为 Windows 加密 `SecureString` 的 `senderKey`；只有同一 Windows 用户能解密。启动器通过进程环境变量引用传入配置，退出时恢复原有环境。连接器凭据须与这些 Webhook 记录分开保存。显式设置的 `DSH_COMPUTER_ROUTINES` 优先于此目录。
+
+同一台电脑再次使用时，保留已有工位绑定和私有连接器配置，启动 DSH Host 与 HTTPS 隧道，然后运行 `check`。若 HTTPS 地址改变，运行 `configure --url HTTPS_ORIGIN` 并输入原有连接器凭据；更换隧道地址不需要重新绑定工位或更换 Webhook 密钥。执行期间保持 Host 和隧道运行。重复任务前先检查当前状态和已上传成果。自动启动测试须使用带新校验短语的新任务，期间不手动运行 Routine、不执行 `claim`、不给 Bot 提醒；验收前核对回传文件。
+
+| 现象 | 下一项检查 |
+|---|---|
+| Webhook 返回 HTTP 200，任务仍排队 | 检查 Routine 运行记录及调用 `claim` 的执行说明。Webhook 密钥用于 DSH 向 Routine 认证，不会配置云端连接器。 |
+| `configure` 在隐藏凭据提示后失败 | 使用 DSH 工位的连接器凭据，不是 Webhook 密钥。确认云端终端收到粘贴；本机剪贴板有内容不代表已粘贴到远端。复制其他命令或网址会替换剪贴板。 |
+| `ValueError` 没有详细信息 | 连接器会主动隐藏错误细节。先检查输入格式和凭据长度，再检查响应格式；仅凭此消息不能认定地址无效。 |
+| 首页返回 401 | 通过 `check` 检查经过认证的 `/computer/v1/manifest`；工作空间首页需要单独的浏览器登录。 |
+| `check` 成功但不识别 `claim` | 替换旧版连接器并检查 `--help`。认证成功不证明支持任务命令。 |
 
 <a id="remote-desktop-connector"></a>
 ## 远程桌面连接器
@@ -83,7 +117,7 @@ Host 记录心跳接收时间。新绑定为待连接，只有收到认证心跳
 
 未领取任务可以在本地取消。已领取任务的**请求停止**只记录 `CANCEL_REQUESTED`；只有认证执行方停止后回报 `confirm_stop`，才记录 `CANCELLED`。这是执行方确认，不是经过独立验证的供应商停止。迟到的进展或完成回报不能覆盖待停止状态。**断开连接**撤销凭据、取消未领取任务，并将其他未终结任务设为 `UNKNOWN`，不会停止远程电脑。请检查原生 Grokbot，必要时轮换凭据重新连接、请求取消，并取得执行方停止确认。
 
-本模块尚未实现 Grokbot 自动唤醒、供应商 Admin API 配置、MCP 安装、同一电脑的多个岗位，以及 DSH 模型自主委派。`taskPush` 和 `remoteStop` 保持 `UNVERIFIED`；`embeddedDesktop` 为 `CONNECTOR_REQUIRED`。[已有 Grokbot 队列](../../packages/webhook/webhook-grokbot/README.zh.md) 是独立模块，本模块不会挂载它。
+本模块尚未实现供应商 Admin API 配置、MCP 安装、同一电脑的多个岗位及 DSH 模型自主委派。Routine 配置和派发记录单独描述唤醒，不表示执行。执行方清单中的 `taskPush` 和 `remoteStop` 保持 `UNVERIFIED`；`embeddedDesktop` 为 `CONNECTOR_REQUIRED`。[已有 Grokbot 队列](../../packages/webhook/webhook-grokbot/README.zh.md) 是独立模块，本模块不会挂载它。
 
 <a id="storage-and-verification"></a>
 ## 存储与验证

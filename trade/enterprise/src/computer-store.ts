@@ -44,7 +44,7 @@ export function computerStore(db: DatabaseSync, fileExists: (id: string) => bool
   }
   const newTask = (id: string, title: string, description: string, assignee: string) => {
     const now = new Date().toISOString()
-    const value = taskSchema.parse({ id, title, description, assignee, dueDate: null, status: 'todo', archived: false, revision: 1, createdAt: now, updatedAt: now })
+    const value = taskSchema.parse({ id, title, description, assignee, dueDate: null, status: 'todo', goalId: null, outcome: '', archived: false, revision: 1, createdAt: now, updatedAt: now })
     db.prepare('INSERT INTO enterprise_tasks(id,data) VALUES(?,?)').run(id, JSON.stringify(value))
     db.prepare('INSERT INTO enterprise_task_history(task_id,revision,data) VALUES(?,?,?)').run(id, 1, JSON.stringify({ action: 'create', actor: 'shared_host', task: value }))
   }
@@ -82,6 +82,7 @@ export function computerStore(db: DatabaseSync, fileExists: (id: string) => bool
     },
     workerJob,
     command(input: z.infer<typeof computerCommand>) {
+      if (input.action === 'wake') throw new ComputerError(400, 'transportRequired')
       return transaction(() => {
         if (input.action === 'bind') {
           if (records('binding').some(record => computerBinding.parse(record).account.toLocaleLowerCase() === input.fields.account.toLocaleLowerCase())) throw new ComputerError(409, 'duplicateAccount')
@@ -119,7 +120,7 @@ export function computerStore(db: DatabaseSync, fileExists: (id: string) => bool
         if (value.state === 'SUCCEEDED') {
           const row = db.prepare('SELECT data FROM enterprise_tasks WHERE id=?').get(value.taskId)
           const task = taskSchema.parse(JSON.parse(String(row?.data)))
-          task.status = 'done'; task.revision++; task.updatedAt = new Date().toISOString()
+          task.status = 'done'; task.outcome = value.result; task.revision++; task.updatedAt = new Date().toISOString()
           db.prepare('UPDATE enterprise_tasks SET data=? WHERE id=?').run(JSON.stringify(task), task.id)
           db.prepare('INSERT INTO enterprise_task_history(task_id,revision,data) VALUES(?,?,?)').run(task.id, task.revision, JSON.stringify({ action: 'update', actor: 'shared_host', task }))
         }

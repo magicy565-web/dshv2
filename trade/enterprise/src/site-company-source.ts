@@ -17,11 +17,13 @@ export function companySiteReview(profile: Profile | null, records: readonly Geo
   if (!profile?.description.trim()) issues.push('profileMissing')
   const superseded = new Set(records.filter(record => record.status === 'confirmed').map(record => record.supersedesId))
   const products = records.flatMap(record => {
-    if (record.kind !== 'product' || superseded.has(record.id)) return []
+    if (record.kind !== 'product' || record.archivedAt || superseded.has(record.id)) return []
     if (record.status !== 'confirmed' || !record.product || !productReadiness(record.product, Boolean(record.productVerifiedAt), now).previewReady) { issues.push('productExcluded'); return [] }
     const product = record.product
     return [{ slug: `product-${record.id}`, name: record.name, description: product.understanding.directAnswer,
       applications: product.understanding.applications,
+      customers: product.understanding.targetCustomers, differences: product.understanding.differentiators, limitations: product.understanding.limitations,
+      evidence: product.evidence.filter(source => source.public).map(source => ({ title: source.title, citation: source.citation, ...(source.url ? { url: source.url } : {}) })),
       specifications: product.claims.filter(claim => claim.public && claim.status === 'declared' && claim.value.type !== 'unknown').map(claim => {
         const value = claim.value
         return { name: claim.name, value: value.type === 'range' ? `${value.min}–${value.max} ${value.unit}` : value.type === 'number' ? `${value.value} ${value.unit}` : value.type === 'unknown' ? '' : String(value.value) }

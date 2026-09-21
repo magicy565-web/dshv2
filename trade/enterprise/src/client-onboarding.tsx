@@ -4,6 +4,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { State } from './model.ts'
 import { ProfileIcon } from './profile-icons.tsx'
+import { onboardingSteps } from './onboarding-state.ts'
 
 type Props = PropsLocale<'enterprise'> & {
   state: State; conversationStarted: boolean; open: () => Promise<boolean>;
@@ -18,10 +19,9 @@ export function OnboardingPanel({ t, state, conversationStarted, open }: Props) 
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const data = state.data
-  const completed = Boolean(data?.onboarding.completedAt)
-  const confirmed = data?.geo.some(record => record.kind === 'company' && record.status === 'confirmed') ?? false
+  const steps = onboardingSteps(data)
+  const completed = steps[3]
   const started = Boolean(data?.profile || data?.geo.length)
-  const steps = [started, Boolean(data?.files.some(file => file.knowledgeStatus === 'ready') || data?.geo.some(record => record.sections.some(section => section.source.trim()))), confirmed, completed]
   const done = steps.filter(Boolean).length
   const next = steps.findIndex(step => !step)
   const hints = { onboardingIdentity: 'onboardingIdentityHint', onboardingSources: 'onboardingSourcesHint', onboardingReview: 'onboardingReviewHint', onboardingFinish: 'onboardingFinishHint' } as const

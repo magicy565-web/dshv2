@@ -15,3 +15,5 @@ await build({
   },
 })
 await copyFile('connector/computer_connector.py', 'lib/computer_connector.py')
+await copyFile('computers.md', 'lib/computers.md')
+await copyFile('computers.zh.md', 'lib/computers.zh.md')

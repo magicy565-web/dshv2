@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { build } from 'esbuild'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { chromium } from '../../../apps/web/node_modules/playwright/index.mjs'
@@ -32,6 +33,8 @@ test('Sites runs saved browser code in a private preview and restores source rev
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
   const patch = join(directory, 'override.yml')
+  const consultant = join(directory, 'site-consultant.mjs')
+  await build({ entryPoints: [join(root, 'trade/enterprise/test/fixtures/site-consultant.ts')], outfile: consultant, bundle: true, format: 'esm', platform: 'node', tsconfigRaw: {}, plugins: [{ name: 'built-llm', setup(builder) { builder.onResolve({ filter: /^@deepseek-ai\/dsh-llm$/ }, () => ({ path: pathToFileURL(join(root, 'packages/llm/llm/lib/index.js')).href, external: true })) } }] })
   const profileDirectory = join(directory, 'profiles', 'trade')
   await mkdir(profileDirectory, { recursive: true })
   await writeFile(join(profileDirectory, 'package.json'), JSON.stringify({ name: 'dsh-profile-trade', private: true, dependencies: {}, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], patchReload: 'live' } } }))
@@ -41,7 +44,8 @@ test('Sites runs saved browser code in a private preview and restores source rev
     directory: join(directory, 'data'), maxFileBytes: 1048576, maxTotalBytes: 10485760,
     maxExtractedCharacters: 1000000, knowledgeChunkCharacters: 1200, maxKnowledgeResults: 8,
     maxDecompressedBytes: 134217728, maxArchiveEntries: 5000, maxTableCells: 250000,
-  } }]))
+    siteAgent: { provider: 'mock', model: 'mock' },
+  } }, { insert: [{ id: 'site-consultant-fixture', name: pathToFileURL(consultant).href }] }]))
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD/i.test(key)))
   child = spawn(process.execPath, [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     cwd: directory, windowsHide: true, env: { ...environment, DSH_HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],

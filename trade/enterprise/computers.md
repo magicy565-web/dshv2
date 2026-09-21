@@ -14,6 +14,7 @@ The **Enterprise computers** sidebar manages existing Grokbot accounts as extern
 ## Table of Contents
 
 - [Connect a workstation](#connect-a-workstation)
+- [Connect one real Grok Bot account](#grokbot-routine)
 - [Remote desktop connector](#remote-desktop-connector)
 - [Motion preview](#motion-preview)
 - [Worker HTTP connector](#worker-http-connector)
@@ -30,6 +31,39 @@ The **Enterprise computers** sidebar manages existing Grokbot accounts as extern
 5. Open uploaded deliverables and review the result in the workspace. Use the native computer for sign-in, CAPTCHA or other manual work.
 
 All Bots on one provider account may share files and credentials. Independent security domains require independent provider accounts, even across deployments. The Host rejects duplicate account identifiers within this deployment, but cannot detect aliases or prove provider isolation. Instructions and connector approvals cannot restrict actions performed through websites already signed into the computer. Use provider and source-system permissions to enforce those restrictions.
+
+<a id="grokbot-routine"></a>
+## Connect one real Grok Bot account
+
+Start with one signed-in Grok Bot account and one working computer. [Provider isolation](https://docs.x.ai/grok-bot/computer-and-apps) is per user: Bots on the same account share files and logins. Bind that account once in DSH. Creating a DSH binding does not create a provider computer. Keep the DSH Host running and expose its worker routes through HTTPS reachable from the cloud computer.
+
+1. Download the connector from **Cloud computer console → Connection setup and diagnostics** and place it in a persistent directory on the Grok Bot computer. First run `python3 computer_connector.py --help` and check that `claim`, `job`, `report`, `download`, `upload` and `routine` are listed; replace an older connector before configuring it. In that computer's terminal, run `python3 computer_connector.py configure`, entering the DSH HTTPS origin and the binding's credential in the hidden prompt. Run `python3 computer_connector.py check`. This checks the DSH connection, not Grok Bot execution.
+2. Run `python3 computer_connector.py routine` to print the worker instruction. Ask your Bot to create a Routine using that instruction, with the actual absolute connector path substituted for `computer_connector.py`. No credentials belong in the Routine. The Bot uses the CLI to claim tasks, read granted inputs, report progress and upload actual files; the Bot itself performs the assignment in its apps.
+3. In the saved Routine, configure a Webhook and copy its **POST to** URL and **key** into private environment variables on the DSH Host. The [official Routine guide](https://cursor.com/help/grok-bot/routines) describes these fields and Bearer authentication. If the account does not expose them, use an explicitly configured scheduled Routine or Test run in the provider app; DSH cannot manufacture the missing webhook credentials. Scheduled execution has a delay and consumes provider usage on each run.
+4. Set `DSH_COMPUTER_ROUTINES` as below, using the exact DSH binding account identifier, then restart the trade profile. The referenced URL and key variables must exist. Configuration fails for missing values, duplicate accounts or invalid HTTPS URLs. URL and key values remain on the Host and are never returned in the fleet response.
+
+```json
+[{"account":"my-grok-account","urlEnv":"DSH_GROK_ONE_WEBHOOK_URL","keyEnv":"DSH_GROK_ONE_WEBHOOK_KEY"}]
+```
+
+5. Assign a read-only task: open a public page, capture its title and URL, and upload a Markdown report containing a unique phrase you supplied. Observe **accepted wakeup**, then a claimed task, then an uploaded file and **Awaiting review**. Open the file and compare it with the actual source before accepting it. A webhook acknowledgement, connector heartbeat or simulated screenshot alone does not pass this check.
+6. Verify a stop request and an input-file grant with the same account. Add another account only after this round trip works. Each additional account needs its own computer, connector configuration, Routine and URL/key environment references. The Host routes by account; it never chooses another account automatically after a failure.
+
+New job creation sends one wakeup for the oldest queued assignment when a matching Routine is configured and the account has no unresolved work. Only HTTP 200 records acceptance; no HTTP status marks the job complete. Delivery is recorded before sending and never retried automatically. Network failure or restart during delivery leaves an unknown result: reconcile in the native app and run the Routine there after inspecting prior work. A rejected delivery can be retried with **Notify Bot to check work** after correcting its configuration. The same control can wake a worker after human intervention or approval; it does not grant approval. After acceptance, failure or confirmed cancellation, the Host wakes the next queued assignment for that account. Outstanding work or uncertain execution blocks this handoff.
+
+`computerWakeTimeoutMs` bounds the acknowledgement wait (default 15000, range 1000–60000). The CLI offers `claim`, `job`, `report`, `download` and `upload`; `--help` lists their arguments. Writes require an observed `--revision`; uploads require a zero-based `--output` and verify the returned SHA-256 against the local bytes. Downloads refuse to overwrite a file. `--max-file-bytes` bounds transfers (default 268435456); Host upload quotas still apply. The connector does not retry mutations or interpret natural language. Remote desktop heartbeats remain a separate optional `run --desktop` process.
+
+On Windows, `trade/dev.ps1` also loads saved `*.clixml` webhook records from `%USERPROFILE%\.dsh-private\grokbot` when `DSH_COMPUTER_ROUTINES` is unset. Each record contains `account`, `webhookUrl` and a `senderKey` saved as a Windows-encrypted `SecureString`; only the same Windows user can decrypt it. The launcher passes these through process environment references and restores its previous environment on exit. Store connector credentials separately from these webhook records. An explicit `DSH_COMPUTER_ROUTINES` overrides this directory.
+
+For a returning computer, keep its existing binding and private connector configuration, start the DSH Host and HTTPS tunnel, then run `check`. If the HTTPS origin changed, run `configure --url HTTPS_ORIGIN` with the existing connector credential; a changed tunnel address does not require a new binding or webhook key. Keep the Host and tunnel running during work. Before repeating a task, inspect its current state and uploaded artifacts. An automatic-start test requires a new assignment with a new challenge and no manual Routine run, `claim` command or Bot reminder; verify the returned file before accepting it.
+
+| Observation | Next check |
+|---|---|
+| Webhook returned HTTP 200; task remains queued | Inspect the Routine run and its instruction to call `claim`. The webhook key authenticates DSH to the Routine; it does not configure the cloud connector. |
+| `configure` fails after the hidden credential prompt | Use the DSH binding's connector credential, not the webhook key. Verify that the cloud terminal received the paste; a local clipboard is not proof of remote paste. Copying another command or URL replaces the clipboard. |
+| `ValueError` without a detailed message | The connector deliberately suppresses error details. Check input format and credential length, then the response format; this message alone does not identify an invalid URL. |
+| Homepage returns 401 | Check the authenticated `/computer/v1/manifest` route through `check`; the workspace homepage requires its own browser login. |
+| `check` works but `claim` is not recognized | Replace the old connector and verify `--help`. Authentication alone does not establish task-command support. |
 
 <a id="remote-desktop-connector"></a>
 ## Remote desktop connector
@@ -83,7 +117,7 @@ Only one nonterminal claimed assignment runs per binding. Claims have no expirin
 
 An unclaimed queued job can be cancelled locally. For a claimed job, **Request stop** records `CANCEL_REQUESTED`; only an authenticated worker's `confirm_stop` after stopping records `CANCELLED`. This is worker attestation, not an independently verified provider stop. Late progress and completion cannot overwrite a pending stop. **Disconnect** revokes the credential, cancels unclaimed jobs and marks other nonterminal jobs `UNKNOWN`; it does not stop the remote computer. Inspect native Grokbot, reconnect with a rotated credential if necessary, request cancellation and obtain the worker's stop acknowledgement.
 
-Automatic Grokbot wake-up, provider Admin API configuration, MCP installation, multiple worker roles per computer, and DSH model-driven delegation are not implemented by this module. `taskPush` and `remoteStop` remain `UNVERIFIED`; `embeddedDesktop` is `CONNECTOR_REQUIRED`. The [older Grokbot queue](../../packages/webhook/webhook-grokbot/README.md) is separate and is not mounted by this module.
+Provider Admin API configuration, MCP installation, multiple worker roles per computer and DSH model-driven delegation are not implemented by this module. Routine configuration and delivery records describe wakeup separately from execution. `taskPush` and `remoteStop` in the worker manifest remain `UNVERIFIED`; `embeddedDesktop` is `CONNECTOR_REQUIRED`. The [older Grokbot queue](../../packages/webhook/webhook-grokbot/README.md) is separate and is not mounted by this module.
 
 <a id="storage-and-verification"></a>
 ## Storage and verification

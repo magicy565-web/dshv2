@@ -1,0 +1,18 @@
+{$SITE_DOMAIN} {
+  @public path /sites-live/* /robots.txt
+  handle @public {
+    reverse_proxy app:3080
+  }
+  handle {
+    respond "Not found" 404
+  }
+}
+{$METRICS_DOMAIN} {
+  @collector path /script.js /api/send
+  handle @collector {
+    reverse_proxy umami:3000
+  }
+  handle {
+    respond "Not found" 404
+  }
+}

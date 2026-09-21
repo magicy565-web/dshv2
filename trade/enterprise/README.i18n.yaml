@@ -1,7 +1,6 @@
-# Source-only workspace: reviewed content hashes; Git blob recovery snapshots remain pending.
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write trade/enterprise/README.md
-README.md: a006c16709113986afb6502c7838030c4b671929
-README.zh.md: c7728f1b9e151a3eb55d878b1dc557ba82cf8d02
+README.md: 5853a343972c055bb60114e5ebd5b535487c23d0
+README.zh.md: 83ed0db3ddb32d637278f383d27ee2d6fbc36678

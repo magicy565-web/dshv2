@@ -1,0 +1,5 @@
+deployment.env
+site-services.json
+searxng.yml
+backups/
+private/

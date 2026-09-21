@@ -4,13 +4,15 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { once } from 'node:events'
 import { chromium } from '../../../apps/web/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 
 test('computer workspace verifies isolated claims, uploads, approvals, cancellation and persisted browser state', { timeout: 120000 }, async t => {
+  await mkdir(join(root, '.trade-runtime'), { recursive: true })
   const directory = await mkdtemp(join(root, '.trade-runtime', 'computers-browser-'))
   const evidence = join(root, '.trade-runtime', 'computer-evidence')
   await mkdir(evidence, { recursive: true })
@@ -35,6 +37,7 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
     directory: join(directory, 'data'), maxFileBytes: 1048576, maxTotalBytes: 10485760,
     maxExtractedCharacters: 1000000, knowledgeChunkCharacters: 1200, maxKnowledgeResults: 8,
     maxDecompressedBytes: 134217728, maxArchiveEntries: 5000, maxTableCells: 250000,
+    computerRoutines: [],
   } }]))
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD/i.test(key)))
   child = spawn(process.execPath, [join(root, 'apps/cli/lib/bin.js'), '--profile', 'trade', '--patch', join(root, 'trade/cordis.patch.yml'), '--patch', patch, '--host', '127.0.0.1', '--port', '0', '--no-open'], {
@@ -131,6 +134,15 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   const connectorDownload = await context.request.get(`${origin}/api/enterprise/computer-connector`)
   assert.equal(connectorDownload.status(), 200)
   assert.match(await connectorDownload.text(), /Outbound DSH connector/)
+  const connectorPath = join(directory, 'computer_connector.py')
+  const connectorConfig = join(directory, 'connection.json')
+  await writeFile(connectorPath, await connectorDownload.text())
+  await writeFile(connectorConfig, JSON.stringify({ url: origin, token }), { mode: 0o600 })
+  const connector = async (...args) => {
+    const result = await promisify(execFile)(process.env.DSH_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), [connectorPath, ...args, '--config', connectorConfig], { windowsHide: true, timeout: 30000, env: environment })
+    assert.equal((result.stdout + result.stderr).includes(token), false)
+    return JSON.parse(result.stdout)
+  }
   const desktopEndpoint = `${origin}/api/enterprise/computer-desktop?id=${binding.id}`
   assert.equal((await fetch(desktopEndpoint)).status, 401)
   await page.locator('.ent-header').getByRole('button', { name: '云电脑控制台', exact: true }).click()
@@ -188,12 +200,19 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   let job = (await snapshot()).jobs[0]
   const duplicateInput = { id: job.id, computerId: job.computerId, objective: job.objective, context: job.context, inputFileIds: job.inputFileIds, expectedOutputs: job.expectedOutputs }
   assert.equal((await command({ action: 'create', job: duplicateInput })).jobs.length, 1)
-  const claim = await (await worker('claim', 'POST')).json()
+  const claim = await connector('claim')
   job = claim.job
   assert.equal(claim.resumed, false)
   const claims = await Promise.all([worker('claim', 'POST'), worker('claim', 'POST')])
   for (const response of claims) { const result = await response.json(); assert.equal(result.job.id, job.id); assert.equal(result.resumed, true) }
   assert.equal((await worker(`file?jobId=${job.id}&id=${file.id}`)).status, 404)
+  await assert.rejects(connector('download', '--job', job.id, '--file-id', file.id, '--file', join(directory, 'ungranted.txt')), error => {
+    assert.equal(error.killed, false)
+    assert.equal(error.signal, null)
+    assert.equal(error.code, 1)
+    assert.match(error.stdout, /HTTP 404/)
+    return true
+  })
   const other = await command({ action: 'bind', fields: { name: '另一工位', account: 'other-user', worker: 'Analyst', nativeUrl: 'https://grok.com/', instructions: 'Public research' } })
   assert.equal((await worker(`job?id=${job.id}`, 'GET', undefined, other.token)).status, 404)
   const report = async (action, message, expected = 200) => {
@@ -208,13 +227,14 @@ test('computer workspace verifies isolated claims, uploads, approvals, cancellat
   await page.getByRole('button', { name: '批准此动作', exact: true }).click()
   await page.getByRole('button', { name: '批准此动作', exact: true }).waitFor({ state: 'hidden' })
   await report('progress', '已获得该动作的审批。')
-  const artifact = await worker(`artifact?jobId=${job.id}&revision=${job.revision}&output=0`, 'POST', '# Research report\nEvidence: https://example.com\nMOQ: unknown\n', token, { 'x-file-name': 'research.md' })
-  assert.equal(artifact.status, 200, await artifact.clone().text())
-  job = (await artifact.json()).job
+  const outputPath = join(directory, 'research.md')
+  await writeFile(outputPath, '# Research report\nEvidence: https://example.com\nMOQ: unknown\n')
+  job = (await connector('upload', '--job', job.id, '--revision', String(job.revision), '--output', '0', '--file', outputPath)).job
   assert.equal(job.artifacts[0].sha256.length, 64)
   const download = await context.request.get(new URL(`/api/enterprise/file?id=${job.artifacts[0].fileId}&download=1`, url).href)
   assert.match(await download.text(), /MOQ: unknown/)
-  await report('submit_result', '报告已上传；MOQ 尚待核实。')
+  job = (await connector('report', '--job', job.id, '--revision', String(job.revision), '--report-action', 'submit_result', '--message', '报告已上传；MOQ 尚待核实。')).job
+  assert.equal(job.state, 'VERIFYING')
   assert.equal(job.state, 'VERIFYING')
   await page.getByRole('button', { name: '刷新', exact: true }).click()
   await page.locator('.cm-job-state').filter({ hasText: '等待验收' }).waitFor()

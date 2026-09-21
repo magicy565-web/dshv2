@@ -1,6 +1,8 @@
 /** Validated enterprise records shared by the HTTP producer and browser consumer. */
 import { z } from 'zod'
+import { sourceImport, sourcePath } from './source-schema.ts'
 import { taskSchema } from './tasks-schema.ts'
+import { businessGoalSchema } from './business-goals-schema.ts'
 import { approvalSchema } from './governance.ts'
 import { geoRecord, geoProgress } from './geo-schema.ts'
 import { opportunitySchema } from './opportunities-schema.ts'
@@ -47,6 +49,8 @@ export const fileSchema = z.object({
   id: fileId, name: z.string(), mime: z.string(), size: z.number(), createdAt: z.string(),
   category: z.enum(['image', 'video', 'document']),
   knowledgeStatus: z.enum(['ready', 'unsupported', 'empty', 'failed']),
+  textTruncated: z.boolean().optional(),
+  source: z.object({ importId: sourceImport.shape.id, path: sourcePath }).optional(),
 })
 /** Uploaded asset metadata. */
 export type Asset = z.infer<typeof fileSchema>
@@ -57,10 +61,12 @@ export const snapshotSchema = z.object({
   files: z.array(fileSchema),
   maxFileBytes: z.number(),
   tasks: z.array(taskSchema),
+  goals: z.array(businessGoalSchema),
   approvals: z.array(approvalSchema),
   geo: z.array(geoRecord).default([]),
   opportunities: z.array(opportunitySchema).default([]),
   onboarding: geoProgress,
+  imports: z.array(sourceImport).optional(),
 })
 /** Enterprise view loaded at mount and refreshed after mutations. */
 export type Snapshot = z.infer<typeof snapshotSchema>

@@ -1,0 +1,8 @@
+version: 1
+scenario: enterprise-work-empty
+profile: headless
+composition: enterprise-work
+recording: authored
+header:
+  class: enterprise-work
+  pin: true

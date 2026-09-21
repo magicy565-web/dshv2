@@ -16,13 +16,13 @@ const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(
 
 function emptySnapshot(): Snapshot {
   return snapshotSchema.parse({
-    profile: null, submittedAt: null, files: [], tasks: [], approvals: [], geo: [], opportunities: [], maxFileBytes: 1024,
+    profile: null, submittedAt: null, files: [], tasks: [], goals: [], approvals: [], geo: [], opportunities: [], maxFileBytes: 1024,
     onboarding: { sessionId: null, revision: 0, scopeIds: [], completedAt: null },
   })
 }
 
 function task(value: number, title: string, status: Snapshot['tasks'][number]['status'], archived = false) {
-  return taskSchema.parse({ id: id(value), title, status, archived, revision: 1, description: '', assignee: '', dueDate: null, createdAt: recordedAt, updatedAt: recordedAt })
+  return taskSchema.parse({ id: id(value), title, status, archived, revision: 1, description: '', assignee: '', dueDate: null, goalId: null, outcome: '', createdAt: recordedAt, updatedAt: recordedAt })
 }
 
 function opportunity(value: number, status: Snapshot['opportunities'][number]['status'], archived = false) {

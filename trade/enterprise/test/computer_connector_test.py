@@ -1,5 +1,6 @@
 """Exercise the shipped connector against an ephemeral HTTP receiver."""
 import importlib.util
+import argparse
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,36 @@ spec.loader.exec_module(connector)
 
 
 class ConnectorTests(unittest.TestCase):
+    def test_routine_instructions_are_available_without_credentials(self):
+        result = subprocess.run([sys.executable, str(source), "routine", "--config", "missing-config.json"], capture_output=True, timeout=10, check=True)
+        expected = (Path(__file__).parent / "expected/computer-routine.txt").read_text(encoding="utf-8")
+        self.assertEqual(result.stdout.decode().replace("\r\n", "\n"), expected)
+
+    def test_reports_require_an_observed_revision_and_keep_credentials_inside_transport(self):
+        config = {"url": "https://example.com", "token": "private-token"}
+        args = argparse.Namespace(action="report", job="00000000-0000-4000-8000-000000000001", revision=None,
+                                  report_action="progress", message="Working", waiting_human=False)
+        with patch.object(connector, "request", return_value={"job": {"revision": 3}}) as send:
+            with self.assertRaises(ValueError):
+                connector.worker_command(config, args)
+            send.assert_not_called()
+            args.revision = 2
+            self.assertEqual(connector.worker_command(config, args), {"job": {"revision": 3}})
+            self.assertEqual(send.call_args.args[2]["expectedRevision"], 2)
+            self.assertNotIn("private-token", json.dumps(send.call_args.args[2]))
+
+    def test_uploads_reject_empty_or_oversized_files_before_network_access(self):
+        with tempfile.TemporaryDirectory(prefix="dsh-worker-test-") as directory:
+            file = Path(directory) / "output.md"
+            args = argparse.Namespace(action="upload", job="00000000-0000-4000-8000-000000000001", revision=2,
+                                      file=file, output=0, max_file_bytes=2)
+            with patch.object(connector.urllib.request, "build_opener") as opener:
+                for content in (b"", b"large"):
+                    file.write_bytes(content)
+                    with self.assertRaises(ValueError):
+                        connector.worker_command({"url": "https://example.com", "token": "private-token"}, args)
+                opener.assert_not_called()
+
     def test_credentials_cannot_be_forwarded_to_redirects_or_insecure_hosts(self):
         for origin in ("http://example.com", "https://user:secret@example.com", "https://example.com/?token=x", "https://example.com/path"):
             with self.assertRaises(ValueError):

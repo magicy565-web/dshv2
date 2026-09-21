@@ -20,6 +20,8 @@ The computer overview illustrates fetched job states rather than provider teleme
 
 The separately opened cloud computer console uses an outbound Python connector with optional MSS capture and xdotool input on an existing X11 desktop. Host-timed heartbeats establish connector liveness. Viewer demand limits frame retention; frames and commands remain transient rather than entering durable job or Session data. An input requires the current connector instance and a recent frame, dispatches once and blocks subsequent input until acknowledged. Lost receipts become uncertain instead of retryable. Restart, credential rotation and disconnect invalidate relay state. Provider provisioning and natural-language execution remain separate integrations; desktop input is explicit human control, not a model-visible tool.
 
+Account-scoped Routine Webhooks notify Grok Bot to check its existing assignment. URL and sender-key references resolve from the Host environment; browser snapshots contain no provider secrets. A durable delivery record precedes the request. HTTP 200 acknowledges wakeup only; interrupted delivery remains unknown across restart and does not retry. The Python connector supplies revision-checked task commands and verifies upload hashes, while the external Bot owns natural-language execution. Routine instructions stay in owner-local expected output because they do not enter a Harness Session. Real-account execution still requires a provider-side Routine and an operator-verified artifact round trip.
+
 ## Alternatives considered
 
 **Reuse expired task leases.** A missing heartbeat cannot distinguish a stopped worker from an executed action whose receipt was lost. Automatic re-execution would risk repeating external writes.

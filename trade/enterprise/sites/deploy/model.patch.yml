@@ -1,0 +1,12 @@
+- id: llm-pi-ai
+  config:
+    providers:
+      site-local:
+        apiKeyEnv: OLLAMA_API_KEY
+        api: openai-completions
+        baseURL: http://ollama:11434/v1
+        models:
+          - id: !!js process.env.SITE_MODEL
+            contextWindow: 32768
+            maxTokens: 8192
+            reasoningEfforts: false
