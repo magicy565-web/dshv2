@@ -1131,8 +1131,8 @@ export function Disclosure({ title, defaultOpen, children }: { title: string; de
  * @returns The dialog overlay.
  */
 export function Dialog({ title, children, actions, onClose, label }: { title: string; children: ReactNode; actions?: ReactNode; onClose: () => void; label: string }) {
-  return <div className="wb-overlay">
-    <div className="wb-dialog" role="dialog" aria-label={label}>
+  return <div className="wb-overlay" onClick={event => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="wb-dialog" role="dialog" aria-label={label} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
       <div className="wb-dialog-head"><strong>{title}</strong><IconButton icon="x" label={label} onActivate={onClose} /></div>
       <div className="wb-dialog-body">{children}</div>
       {actions && <div className="wb-dialog-actions">{actions}</div>}

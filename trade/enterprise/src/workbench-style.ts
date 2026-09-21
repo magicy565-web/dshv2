@@ -450,7 +450,7 @@ body[data-trade-workbench] {
 .wb-disclosure summary svg { transition: transform .16s var(--workbench-ease); color: var(--workbench-muted); }
 .wb-disclosure[open] summary svg { transform: rotate(90deg); }
 .wb-disclosure-body { padding: 2px 2px 14px 21px; font-size: 12.5px; color: var(--workbench-muted); line-height: 1.65; }
-.wb-overlay { position: relative; display: grid; place-items: center; min-height: 240px; border-radius: 14px; background: color-mix(in srgb, var(--workbench-ink) 32%, transparent); padding: 26px; }
+.wb-overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: color-mix(in srgb, var(--workbench-ink) 32%, transparent); padding: 26px; }
 .wb-dialog { width: min(440px, 100%); border-radius: 14px; background: var(--workbench-paper); box-shadow: 0 24px 70px rgba(0, 0, 0, .28); }
 .wb-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; font-size: 14px; }
 .wb-dialog-body { padding: 2px 16px 14px; font-size: 12.5px; color: var(--workbench-muted); line-height: 1.6; }
